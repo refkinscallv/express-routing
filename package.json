@@ -1,0 +1,32 @@
+{
+    "name": "express-routing",
+    "version": "1.0.0",
+    "description": "Routing library for Express with laravel routing style, easy to use and express standards",
+    "keywords": [
+        "express",
+        "route",
+        "routing"
+    ],
+    "homepage": "https://github.com/refkinscallv/express-routing#readme",
+    "bugs": {
+        "url": "https://github.com/refkinscallv/express-routing/issues"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/refkinscallv/express-routing.git"
+    },
+    "license": "MIT",
+    "author": "Refkinscallv <refkinscallv@gmail.com>",
+    "type": "commonjs",
+    "main": "index.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "example": "nodemon example/index.js"
+    },
+    "dependencies": {
+        "express": "^5.1.0"
+    },
+    "devDependencies": {
+        "nodemon": "^3.1.9"
+    }
+}
