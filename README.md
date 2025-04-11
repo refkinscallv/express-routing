@@ -32,7 +32,7 @@ npm install @refkinscallv/express-routing
 // example/index.js
 const express = require('express')
 const http = require('http')
-const Routes = require('express-routing') // or require('../src/routes')
+const Routes = require('@refkinscallv/express-routing') // or require('../src/routes')
 
 const app = express()
 const router = express.Router()
@@ -53,7 +53,7 @@ http.createServer(app).listen(3000, () => {
 
 ```js
 // example/web.js
-const Routes = require('express-routing')
+const Routes = require('@refkinscallv/express-routing'))
 
 class SampleController {
     static index({ res }) {
