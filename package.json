@@ -1,10 +1,9 @@
 {
-    "name": "express-routing",
+    "name": "@refkinscallv/express-routing",
     "version": "1.0.0",
     "description": "Routing library for Express with laravel routing style, easy to use and express standards",
     "keywords": [
         "express",
-        "route",
         "routing"
     ],
     "homepage": "https://github.com/refkinscallv/express-routing#readme",

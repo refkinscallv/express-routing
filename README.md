@@ -9,7 +9,7 @@ Laravel-style routing for Express apps — finally something you **actually enjo
 ## 🚀 Installation
 
 ```bash
-npm install refkinscallv/express-routing
+npm install @refkinscallv/express-routing
 ```
 
 ---
