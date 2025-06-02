@@ -5,7 +5,7 @@
  * @description Laravel-style routing system for Express.js.
  * @author Refkinscallv
  * @repository https://github.com/refkinscallv/express-routing
- * @version 1.0.6
+ * @version 1.1.0
  * @date 2025
  */
 module.exports = class Routes {
@@ -18,9 +18,9 @@ module.exports = class Routes {
      * Normalizations path
      */
     static normalizePath(path) {
-        // Ensure path starts with a single slash and does not end with a slash (except root "/")
-        return '/' + path.replace(/^\/+|\/+$/g, '')
-    }
+        const normalized = '/' + path.replace(/^\/+|\/+$/g, '')
+        return normalized === '/' ? '/' : normalized.replace(/\/+$/, '')
+    }    
 
     /**
      * Adds a route with specified methods, path, handler, and middlewares.

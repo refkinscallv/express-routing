@@ -1,6 +1,6 @@
 {
     "name": "@refkinscallv/express-routing",
-    "version": "1.0.6",
+    "version": "1.1.0",
     "description": "Routing library for Express with laravel routing style, easy to use and express standards",
     "keywords": [
         "express",
@@ -19,13 +19,15 @@
     "type": "commonjs",
     "main": "index.js",
     "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1",
+        "test": "jest",
         "example": "nodemon example/index.js"
     },
     "dependencies": {
         "express": "^5.1.0"
     },
     "devDependencies": {
-        "nodemon": "^3.1.9"
+        "jest": "^29.7.0",
+        "nodemon": "^3.1.9",
+        "supertest": "^7.1.1"
     }
 }
