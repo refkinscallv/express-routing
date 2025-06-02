@@ -1,33 +1,46 @@
 'use strict'
 
 /**
- * Express Routing by Refkinscallv
- * version 1.0.0
- * 
- * Laravel-style routing class for Express apps
+ * @module express-routing
+ * @description Laravel-style routing system for Express.js.
+ * @author Refkinscallv
+ * @repository https://github.com/refkinscallv/express-routing
+ * @version 1.0.6
+ * @date 2025
  */
-
 module.exports = class Routes {
-    static routes = []                    // Stores all route definitions
-    static prefix = ''                    // Used for route groups
-    static groupMiddlewares = []          // Used for middleware grouping
+    static routes = []
+    static prefix = ''
+    static groupMiddlewares = []
+    static globalMiddlewares = []
 
     /**
-     * Register a route definition
+     * Normalizations path
+     */
+    static normalizePath(path) {
+        // Ensure path starts with a single slash and does not end with a slash (except root "/")
+        return '/' + path.replace(/^\/+|\/+$/g, '')
+    }
+
+    /**
+     * Adds a route with specified methods, path, handler, and middlewares.
      */
     static add(methods, path, handler, middlewares = []) {
         const methodArray = Array.isArray(methods) ? methods : [methods]
-        const fullPath = `${this.prefix}${path}`.replace(/\/{2,}/g, '/') // Normalize double slashes
+        const fullPath = this.normalizePath(`${this.prefix}/${path}`)
 
         this.routes.push({
             methods: methodArray,
             path: fullPath,
             handler,
-            middlewares: [...this.groupMiddlewares, ...middlewares],
+            middlewares: [
+                ...this.globalMiddlewares,
+                ...this.groupMiddlewares,
+                ...middlewares,
+            ],
         })
     }
 
-    // HTTP verb helpers
     static get(path, handler, middlewares = []) {
         this.add('get', path, handler, middlewares)
     }
@@ -57,68 +70,115 @@ module.exports = class Routes {
     }
 
     /**
-     * Group multiple routes under a common prefix and/or middleware
+     * Groups routes with a common prefix and middlewares.
      */
     static group(prefix, callback, middlewares = []) {
-        const previousPrefix = this.prefix
-        const previousMiddlewares = this.groupMiddlewares
+        const prevPrefix = this.prefix
+        const prevMiddlewares = this.groupMiddlewares
 
-        this.prefix = `${previousPrefix}${prefix}`.replace(/\/{2,}/g, '/')
-        this.groupMiddlewares = [...previousMiddlewares, ...middlewares]
+        this.prefix = `${prevPrefix}${prefix}`.replace(/\/{2,}/g, '/')
+        this.groupMiddlewares = [...prevMiddlewares, ...middlewares]
 
         callback()
 
-        // Restore previous state after group is done
-        this.prefix = previousPrefix
-        this.groupMiddlewares = previousMiddlewares
+        this.prefix = prevPrefix
+        this.groupMiddlewares = prevMiddlewares
     }
 
     /**
-     * Apply the registered routes to an Express router instance
+     * Applies global middlewares for the duration of the callback.
+     */
+    static middleware(middlewares, callback) {
+        const prevMiddlewares = this.globalMiddlewares
+
+        this.globalMiddlewares = [...prevMiddlewares, ...middlewares]
+
+        callback()
+
+        this.globalMiddlewares = prevMiddlewares
+    }
+
+    /**
+     * Applies all registered routes to the provided Express Router instance.
+     * Handles controller-method binding and middleware application.
      */
     static async apply(router) {
         for (const route of this.routes) {
-            let handlerFunction
+            let handlerFunction = null
 
-            // 1. Direct function handler
             if (typeof route.handler === 'function') {
                 handlerFunction = route.handler
-
-            // 2. Callable descriptor [Class/Object, 'method']
             } else if (
                 Array.isArray(route.handler) &&
                 route.handler.length === 2
             ) {
                 const [Controller, method] = route.handler
-                if (typeof Controller[method] !== 'function') {
+
+                if (
+                    typeof Controller === 'function' &&
+                    typeof Controller[method] === 'function'
+                ) {
+                    handlerFunction = Controller[method].bind(Controller)
+                }
+                else if (typeof Controller === 'function') {
+                    try {
+                        const instance = new Controller()
+                        if (typeof instance[method] === 'function') {
+                            handlerFunction = instance[method].bind(instance)
+                        } else {
+                            console.error(
+                                `[ROUTES] Method "${method}" not found in controller instance "${Controller.name}"`
+                            )
+                            continue
+                        }
+                    } catch (err) {
+                        console.error(
+                            `[ROUTES] Failed to instantiate controller "${Controller.name}": ${err.message}`
+                        )
+                        continue
+                    }
+                } else {
                     console.error(
-                        `Method "${method}" not found in controller "${Controller.name}"`
+                        `[ROUTES] Invalid controller type for route: ${route.path}`
+                    )
+                    continue
+                }
+            } else {
+                console.error(`[ROUTES] Invalid handler format for route: ${route.path}`)
+                continue
+            }
+
+            if (!handlerFunction) continue
+
+            for (const method of route.methods) {
+                const allowedMethods = [
+                    'get',
+                    'post',
+                    'put',
+                    'delete',
+                    'patch',
+                    'options',
+                    'head',
+                ]
+
+                if (!allowedMethods.includes(method)) {
+                    console.error(
+                        `[ROUTES] Invalid HTTP method: ${method} for route: ${route.path}`
                     )
                     continue
                 }
 
-                // Bind to class or object context
-                handlerFunction = Controller[method].bind(Controller)
-
-            // 3. Invalid handler format
-            } else {
-                console.error(`Invalid handler format for route: ${route.path}`)
-                continue
-            }
-
-            // Register to Express router
-            for (const method of route.methods) {
                 router[method](
                     route.path,
                     ...(route.middlewares || []),
                     async (req, res, next) => {
                         try {
-                            const routeHttpHandler = { req, res, next }
-                            const result = handlerFunction(routeHttpHandler)
+                            const ctx = { req, res, next }
+                            const result = handlerFunction(ctx)
                             await Promise.resolve(result)
                         } catch (error) {
                             console.error(
-                                `Error in route ${method.toUpperCase()} ${route.path}: ${error.message}`
+                                `[ROUTES] Error in route ${method.toUpperCase()} ${route.path}: ${error.message}`
                             )
                             next(error)
                         }

@@ -1,125 +1,140 @@
-/**
- * PACKAGES
- */
 const Routes = require('../src/routes')
 
-/** ======================================================================== */
-/**
- * ROUTE HANDLERS
- */
-
-/**
- * Handler using a class
- * Used with [ClassName, 'methodName'] as a callable descriptor
- */
-class Sample1Class {
-    static index({ res }) {
-        res.status(200).json({
-            status: true,
-            code: 200,
-            message: 'Success: Sample1Class',
-            result: {},
-        })
+// Helper function: pick some request properties to include in JSON response
+function pickRequestFields(req) {
+    return {
+        app: req.app,
+        baseUrl: req.baseUrl,
+        body: req.body,
+        cookies: req.cookies,
+        fresh: req.fresh,
+        hostname: req.hostname,
+        ip: req.ip,
+        ips: req.ips,
+        method: req.method,
+        originalUrl: req.originalUrl,
     }
 }
 
-/**
- * Handler using an object
- * Can be called directly via its method reference
- */
-const Sample2Object = {
-    index: ({ res }) => {
-        res.status(200).json({
+// ==================== Sample Middlewares ====================
+class Middleware {
+    // Middleware that allows all requests (unprotected)
+    static unprotected(req, res, next) {
+        // Just pass through
+        next()
+    }
+
+    // Middleware that restricts access based on query parameter 'id'
+    static protected(req, res, next) {
+        const id = req.query.id
+
+        if (!id || id !== '12345678') {
+            return res.status(403).json({
+                status: false,
+                code: 403,
+                message: 'Forbidden',
+            })
+        }
+
+        next()
+    }
+}
+
+// ==================== Sample Controllers ====================
+
+// Object literal controller
+const ThisObject = {
+    index({ req, res }) {
+        return res.status(200).json({
             status: true,
             code: 200,
-            message: 'Success: Sample2Object',
-            result: {},
+            message: 'Route handler with object',
+            request: pickRequestFields(req),
+        })
+    },
+
+    protected({ req, res }) {
+        return res.status(200).json({
+            status: true,
+            code: 200,
+            message: 'Route handler with object + protected middleware',
+            request: pickRequestFields(req),
         })
     },
 }
 
-/** ======================================================================== */
-/**
- * MIDDLEWARES
- */
-
-/**
- * Auth middleware to simulate token check
- * Add header `Authorization: Bearer mysecrettoken` to pass
- */
-const authMiddleware = (req, res, next) => {
-    const token = req.headers['authorization']
-
-    if (!token || token !== 'Bearer mysecrettoken') {
-        return res.status(401).json({
-            status: false,
-            code: 401,
-            message: 'Unauthorized: Invalid or missing token',
+// Instance class controller
+class ThisInstanceClass {
+    index({ req, res }) {
+        return res.status(200).json({
+            status: true,
+            code: 200,
+            message: 'Route handler with instance class',
+            request: pickRequestFields(req),
         })
     }
 
-    // Attach dummy user to request
-    req.user = { id: 1, name: 'John Doe' }
-    next()
+    protected({ req, res }) {
+        return res.status(200).json({
+            status: true,
+            code: 200,
+            message: 'Route handler with instance class + protected middleware',
+            request: pickRequestFields(req),
+        })
+    }
 }
 
-/** ======================================================================== */
-/**
- * DEFINE ROUTES
- */
+// Static class controller
+class ThisStaticClass {
+    static index({ req, res }) {
+        return res.status(200).json({
+            status: true,
+            code: 200,
+            message: 'Route handler with static class',
+            request: pickRequestFields(req),
+        })
+    }
 
-// Direct callback handler (anonymous function)
-Routes.get('/', ({ res }) => {
-    res.send('Hello World!')
-})
+    static protected({ req, res }) {
+        return res.status(200).json({
+            status: true,
+            code: 200,
+            message: 'Route handler with static class + protected middleware',
+            request: pickRequestFields(req),
+        })
+    }
+}
 
-// Using class method directly
-Routes.get('/sample1.0', Sample1Class.index)
+// ==================== Routes Registration ====================
 
-// Using class method as callable descriptor
-Routes.get('/sample1.1', [Sample1Class, 'index'])
-
-// Using object method directly
-Routes.get('/sample2.0', Sample2Object.index)
-
-// Using object method as callable descriptor
-Routes.get('/sample2.1', [Sample2Object, 'index'])
-
-// Protected route using middleware
-Routes.get('/sample-middleware', [Sample1Class, 'index'], [authMiddleware])
-
-/** ======================================================================== */
-/**
- * GROUP ROUTES
- */
-
-// Group without middleware
-Routes.group('/group', () => {
-    Routes.get('/sample1.0', Sample1Class.index)
-    Routes.get('/sample1.1', [Sample1Class, 'index'])
-    Routes.get('/sample2.0', Sample2Object.index)
-    Routes.get('/sample2.1', [Sample2Object, 'index'])
-    Routes.get('/sample-middleware', [Sample1Class, 'index'], [authMiddleware])
-})
-
-// Group with middleware applied to all nested routes
-Routes.group('/secure-group', () => {
-    Routes.get('/sample1.0', Sample1Class.index)
-    Routes.get('/sample1.1', [Sample1Class, 'index'])
-    Routes.get('/sample2.0', Sample2Object.index)
-    Routes.get('/sample2.1', [Sample2Object, 'index'])
-    Routes.get('/sample-middleware', [Sample1Class, 'index'])
-}, [authMiddleware])
-
-// Nested group
-Routes.group('/nested', () => {
-    Routes.group('/sample1', () => {
-        Routes.get('/sample1.0', Sample1Class.index)
-        Routes.get('/sample1.1', [Sample1Class, 'index'])
+// Unprotected routes group with unprotected middleware applied
+Routes.middleware([Middleware.unprotected], () => {
+    Routes.get('directly', ({ req, res }) => {
+        return res.status(200).json({
+            status: true,
+            code: 200,
+            message: 'Route handler with directly function',
+            request: pickRequestFields(req),
+        })
     })
+    Routes.get('object', ThisObject.index)
+    Routes.get('instance', [ThisInstanceClass, 'index'])
+    Routes.get('static', ThisStaticClass.index)
+})
 
-    Routes.group('/sample2', () => {
-        Routes.get('/sample2.0', Sample2Object.index)
-        Routes.get('/sample2.1', [Sample2Object, 'index'])
+// Protected routes group with protected middleware applied, nested under /protected prefix
+Routes.middleware([Middleware.protected], () => {
+    Routes.group('protected', () => {
+        Routes.get('directly', ({ req, res }) => {
+            return res.status(200).json({
+                status: true,
+                code: 200,
+                message: 'Route handler with directly function + protected middleware',
+                request: pickRequestFields(req),
+            })
+        })
+        Routes.get('object', ThisObject.protected)
+        Routes.get('instance', [ThisInstanceClass, 'protected'])
+        Routes.get('static', ThisStaticClass.protected)
     })
 })

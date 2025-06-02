@@ -1,9 +1,11 @@
 'use strict'
 
 /**
- * Express Routing by Refkinscallv
- * version 1.0.0
- * 
- * Entry point – exports the main routing module
+ * @module express-routing
+ * @description Laravel-style routing system for Express.js.
+ * @author Refkinscallv
+ * @repository https://github.com/refkinscallv/express-routing
+ * @version 1.0.6
+ * @date 2025
  */
 module.exports = require('./src/routes')

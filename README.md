@@ -1,162 +1,200 @@
-# 🔁 Express Routing by Refkinscallv
+# 📦 @refkinscallv/express-routing
 
-Laravel-style routing for Express apps — finally something you **actually enjoy** using in Node.js.
-
-> Simple, readable, and middleware-friendly like your favorite PHP framework... but with JavaScript's async power.
+Laravel-style routing system for Express.js in JavaScript. Clean route definitions, middleware support, and controller bindings — just like your favorite PHP framework, but in JS.
 
 ---
 
-## 🚀 Installation
+## 🛠 Installation
 
 ```bash
 npm install @refkinscallv/express-routing
+````
+
+---
+
+## 🧪 Example Usage
+
+Check out [`example/index.js`](./example/index.js) for a full working demo of how this works in a real-world Express app.
+
+---
+
+## 📚 Features
+
+* ✅ Simple and clean route declarations (`get`, `post`, etc.)
+* ✅ Grouped routes with prefix
+* ✅ Middleware stack: per-route and group-level
+* ✅ Controller-method pair as route handler
+* ✅ Supports `HttpContext` style handlers: `{ req, res, next }`
+* ✅ Auto-binds controller methods
+* ✅ Fully Express-compatible
+
+---
+
+## ✨ Usage
+
+### 🔹 1. Basic Route
+
+```js
+Routes.get('/hello', ({ res }) => {
+  res.send('Hello World')
+})
+```
+
+### 🔹 2. With Middleware
+
+```js
+const authMiddleware = (req, res, next) => {
+  // auth logic
+  next()
+}
+
+Routes.post('/secure', ({ res }) => res.send('Protected'), [authMiddleware])
 ```
 
 ---
 
-## 📦 Features
+### 🔹 3. Controller Binding
 
-- Grouped routes like Laravel
-- Middleware support (single or grouped)
-- Controller-like handlers (`[Class, 'method']`)
-- Clean and minimal route definitions
-- Fully compatible with Express
+```js
+class UserController {
+  static index({ res }) {
+    res.send('User List')
+  }
+}
+
+Routes.get('/users', [UserController, 'index'])
+```
+
+> ⚠️ Class-based handlers will auto-bind to static or instance methods.
 
 ---
 
-## ⚙️ Quick Start
-
-### 1. Setup your app
+### 🔹 4. Grouped Routes
 
 ```js
-// example/index.js
+Routes.group('/admin', () => {
+  Routes.get('/dashboard', ({ res }) => res.send('Admin Panel'))
+})
+```
+
+With middleware:
+
+```js
+Routes.group('/secure', () => {
+  Routes.get('/data', ({ res }) => res.send('Secure Data'))
+}, [authMiddleware])
+```
+
+---
+
+### 🔹 5. Global Middleware Scope
+
+```js
+Routes.middleware([authMiddleware], () => {
+  Routes.get('/profile', ({ res }) => res.send('My Profile'))
+})
+```
+
+---
+
+### 🔹 6. Apply to Express
+
+```js
 const express = require('express')
-const http = require('http')
-const Routes = require('@refkinscallv/express-routing') // or require('../src/routes')
+const Routes = require('@refkinscallv/express-routing')
 
 const app = express()
 const router = express.Router()
 
-app.use(express.json())
-app.use(express.urlencoded({ extended: true }))
+// Register your routes
+require('./routes')
 
-require('./web') // define your routes here
-Routes.apply(router) // apply all routes
+Routes.apply(router)
 app.use(router)
 
-http.createServer(app).listen(3000, () => {
-    console.log('Server running at http://localhost:3000')
+app.listen(3000, () => {
+  console.log('Server is running at http://localhost:3000')
 })
 ```
 
-### 2. Define routes like a boss
+---
 
-```js
-// example/web.js
-const Routes = require('@refkinscallv/express-routing'))
+## 📖 API Reference
 
-class SampleController {
-    static index({ res }) {
-        res.json({ status: true, message: 'Hello from SampleController' })
-    }
-}
+### 📌 Routes Methods
 
-const authMiddleware = (req, res, next) => {
-    const token = req.headers['authorization']
-    if (token !== 'Bearer mysecrettoken') {
-        return res.status(401).json({ status: false, message: 'Unauthorized' })
-    }
-    next()
-}
-
-Routes.get('/', ({ res }) => res.send('Hello World!'))
-Routes.get('/sample', SampleController.index)
-Routes.get('/sample-auth', [SampleController, 'index'], [authMiddleware])
-
-Routes.group('/grouped', () => {
-    Routes.get('/one', SampleController.index)
-    Routes.get('/two', [SampleController, 'index'])
-})
-
-Routes.group('/secure', () => {
-    Routes.get('/check', [SampleController, 'index'])
-}, [authMiddleware])
-```
+| Method      | Description                       |
+| ----------- | --------------------------------- |
+| `get()`     | Register a GET route              |
+| `post()`    | Register a POST route             |
+| `put()`     | Register a PUT route              |
+| `patch()`   | Register a PATCH route            |
+| `delete()`  | Register a DELETE route           |
+| `options()` | Register an OPTIONS route         |
+| `head()`    | Register a HEAD route             |
+| `add()`     | Register multiple methods at once |
 
 ---
 
-## 🧠 API Reference
+### 📌 Static Methods
 
-### `Routes.get|post|put|delete|patch(path, handler, middlewares = [])`
-Register a single route. Handler can be:
-- A function: `({ req, res }) => {}`
-- A callable descriptor: `[Class/Object, 'methodName']`
-
-### `Routes.group(prefix, callback, middlewares = [])`
-Group routes under a common prefix and shared middleware.
-
-```js
-Routes.group('/admin', () => {
-    Routes.get('/dashboard', AdminController.dashboard)
-}, [authMiddleware])
-```
-
-### `Routes.apply(router)`
-Applies all defined routes into the given Express router.
+| Method                | Description                                      |
+| --------------------- | ------------------------------------------------ |
+| `Routes.get()`        | Register a GET route                             |
+| `Routes.post()`       | Register a POST route                            |
+| `Routes.put()`        | Register a PUT route                             |
+| `Routes.delete()`     | Register a DELETE route                          |
+| `Routes.patch()`      | Register a PATCH route                           |
+| `Routes.options()`    | Register an OPTIONS route                        |
+| `Routes.head()`       | Register a HEAD route                            |
+| `Routes.add()`        | Register one or more HTTP methods at once        |
+| `Routes.group()`      | Group routes under a prefix and share middleware |
+| `Routes.middleware()` | Apply global middleware scope to nested routes   |
+| `Routes.apply()`      | Apply all defined routes to an Express router    |
 
 ---
 
-## ✅ Handler Flexibility
+## 📌 Execution Flow
 
-```js
-Routes.get('/a', ({ res }) => res.send('Inline function'))
+Middleware execution order:
 
-Routes.get('/b', SampleController.index) // static method
-
-Routes.get('/c', [SampleController, 'index']) // as descriptor
-
-const Obj = {
-    index: ({ res }) => res.send('From object method')
-}
-Routes.get('/d', [Obj, 'index'])
 ```
+[ Global Middleware ] → [ Group Middleware ] → [ Route Middleware ]
+```
+
+Handler execution:
+
+* If function → executed directly
+* If `[Controller, 'method']` → auto-instantiated (if needed), method is called
 
 ---
 
-## 🛡 Middleware Support
+## 🧠 Tips
 
-```js
-const auth = (req, res, next) => { /* ... */ }
-
-Routes.get('/private', SampleController.index, [auth])
-
-Routes.group('/secure', () => {
-    Routes.get('/data', SampleController.index)
-}, [auth])
-```
+* All route paths are cleaned automatically to avoid double slashes (`//` → `/`)
+* Controller methods are auto-bound (no `bind()` needed)
+* Handlers support `async`/Promise usage
+* Middleware order matters, just like native Express
 
 ---
 
-## 🧪 Run the example
+## 🧪 Run Example
 
 ```bash
 npm run example
 ```
 
-> Open [http://localhost:3000](http://localhost:3000)
-
----
+Visit: [http://localhost:3000](http://localhost:3000)
 
 ---
 
 ## 📝 License
 
-MIT — Refkinscallv © 2025
+MIT License © 2025 Refkinscallv
 
 ---
 
-## 👋 Say Hello
+## 👋 Stay in Touch
 
 Made with ❤️ by [Refkinscallv](mailto:refkinscallv@gmail.com)
-
-Follow us for more tools that make your Node.js life easier 😉
+Follow us for more tools that simplify Node.js development.
