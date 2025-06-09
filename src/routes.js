@@ -5,7 +5,7 @@
  * @description Laravel-style routing system for Express.js.
  * @author Refkinscallv
  * @repository https://github.com/refkinscallv/express-routing
- * @version 1.1.1
+ * @version 1.2.1
  * @date 2025
  */
 module.exports = class Routes {
@@ -18,8 +18,10 @@ module.exports = class Routes {
      * Normalizations path
      */
     static normalizePath(path) {
-        const normalized = '/' + path.replace(/^\/+|\/+$/g, '')
-        return normalized === '/' ? '/' : normalized.replace(/\/+$/, '')
+        return '/' + path
+            .split('/')
+            .filter(Boolean)
+            .join('/')
     }    
 
     /**
@@ -73,16 +75,20 @@ module.exports = class Routes {
      * Groups routes with a common prefix and middlewares.
      */
     static group(prefix, callback, middlewares = []) {
-        const prevPrefix = this.prefix
-        const prevMiddlewares = this.groupMiddlewares
+        const previousPrefix = this.prefix
+        const previousMiddlewares = this.groupMiddlewares
 
-        this.prefix = `${prevPrefix}${prefix}`.replace(/\/{2,}/g, '/')
-        this.groupMiddlewares = [...prevMiddlewares, ...middlewares]
+        const fullPrefix = [previousPrefix, prefix]
+            .filter(Boolean)
+            .join('/')
+
+        this.prefix = this.normalizePath(fullPrefix)
+        this.groupMiddlewares = [...previousMiddlewares, ...middlewares]
 
         callback()
 
-        this.prefix = prevPrefix
-        this.groupMiddlewares = prevMiddlewares
+        this.prefix = previousPrefix
+        this.groupMiddlewares = previousMiddlewares
     }
 
     /**
