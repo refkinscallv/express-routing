@@ -1,0 +1,13 @@
+tests/
+example/
+docs/
+coverage/
+*.test.js
+*.test.mjs
+*.test.ts
+jest.config.js
+tsconfig.json
+.gitignore
+.github/
+node_modules/
+.DS_Store

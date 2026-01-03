@@ -1,5 +1,3 @@
-'use strict'
-
 /**
  * @module express-routing
  * @description Laravel-style routing system for Express.js with support for CommonJS, ESM, and TypeScript
@@ -9,7 +7,7 @@
  * @date 2025
  */
 
-module.exports = class Routes {
+export default class Routes {
     static routes = []
     static prefix = ''
     static groupMiddlewares = []

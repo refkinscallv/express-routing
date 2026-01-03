@@ -1,11 +1,9 @@
 'use strict'
 
 /**
- * @module express-routing
- * @description Laravel-style routing system for Express.js.
- * @author Refkinscallv
- * @repository https://github.com/refkinscallv/express-routing
- * @version 1.1.1
- * @date 2025
+ * @module @refkinscallv/express-routing
+ * @description Laravel-style routing system for Express.js
+ * @version 2.0.1
  */
-module.exports = require('./src/routes')
+
+module.exports = require('./src/routes');
