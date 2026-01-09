@@ -3,8 +3,8 @@
  * @description Laravel-style routing system for Express.js with support for CommonJS, ESM, and TypeScript
  * @author Refkinscallv
  * @repository https://github.com/refkinscallv/express-routing
- * @version 2.0.1
- * @date 2025
+ * @version 2.0.2
+ * @date 2026
  */
 
 export default class Routes {

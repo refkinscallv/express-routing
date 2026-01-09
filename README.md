@@ -220,7 +220,7 @@ See [CHANGELOG.md](CHANGELOG.md) for version history.
 
 ## License
 
-MIT License © 2025 Refkinscallv
+MIT License © 2026 Refkinscallv
 
 ## Author
 

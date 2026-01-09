@@ -5,11 +5,11 @@
  * @description Laravel-style routing system for Express.js with support for CommonJS, ESM, and TypeScript
  * @author Refkinscallv
  * @repository https://github.com/refkinscallv/express-routing
- * @version 2.0.1
- * @date 2025
+ * @version 2.0.2
+ * @date 2026
  */
 
-module.exports = class Routes {
+class Routes {
     static routes = []
     static prefix = ''
     static groupMiddlewares = []
@@ -254,3 +254,6 @@ module.exports = class Routes {
         }
     }
 }
+
+module.exports = Routes
+module.exports.default = Routes

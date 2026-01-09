@@ -1,6 +1,6 @@
 {
     "name": "@refkinscallv/express-routing",
-    "version": "2.0.1",
+    "version": "2.0.2",
     "description": "Laravel-style routing system for Express.js with CommonJS, ESM, and TypeScript support",
     "keywords": [
         "express",

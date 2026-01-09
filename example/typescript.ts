@@ -37,7 +37,7 @@ Routes.middleware([logMiddleware], () => {
     Routes.get('/', ({ res }: HttpContext): void => {
         res.json({
             message: 'TypeScript Example Server',
-            version: '2.0.1',
+            version: '2.0.2',
             language: 'TypeScript'
         });
     });

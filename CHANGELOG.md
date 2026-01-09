@@ -5,7 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.1] - 2025-01-03
+## [2.0.2] - 2026-01-09
+
+### Fixed
+- **BREAKING FIX**: CommonJS import no longer requires `.default` property
+  - Before: `const Routes = require('@refkinscallv/express-routing'); Routes.default.get()`
+  - After: `const Routes = require('@refkinscallv/express-routing'); Routes.get()`
+- Improved CommonJS export compatibility for better developer experience
+- Added dual export support (`module.exports` and `module.exports.default`) for maximum compatibility
+
+### Changed
+- Enhanced CommonJS module exports for direct class access
+- Maintained backward compatibility with ESM interop tools
+
+## [2.0.1] - 2026-01-03
 
 ### Added
 - Full ESM (ES Module) support with dedicated `.mjs` file
@@ -121,6 +134,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Notes
 
+### Breaking Changes in 2.0.2
+
+#### CommonJS Import (Developer Experience Fix)
+
+In version 2.0.1, CommonJS users had to use:
+```javascript
+const Routes = require('@refkinscallv/express-routing')
+Routes.default.get('/path', handler) // Awkward!
+```
+
+Now in 2.0.2, the natural syntax works:
+```javascript
+const Routes = require('@refkinscallv/express-routing')
+Routes.get('/path', handler) // Clean!
+```
+
+**Migration**: Simply remove `.default` from your CommonJS imports. Your code will be cleaner and more intuitive.
+
 ### Breaking Changes in 2.0.1
 
 #### Express Version
@@ -156,7 +187,41 @@ No known security issues. Please report any security vulnerabilities to refkinsc
 
 ## Migration Guide
 
-### From 1.x to 2.0.1
+### From 2.0.1 to 2.0.2
+
+This is a minor fix release that improves the CommonJS import experience.
+
+#### If You Were Using `.default` in CommonJS
+
+**Before (2.0.1):**
+```javascript
+const Routes = require('@refkinscallv/express-routing')
+Routes.default.get('/users', handler)
+```
+
+**After (2.0.2):**
+```javascript
+const Routes = require('@refkinscallv/express-routing')
+Routes.get('/users', handler) // Much better!
+```
+
+#### No Changes Needed for ESM or TypeScript
+
+ESM and TypeScript imports continue to work exactly the same:
+
+```javascript
+// ESM - No changes
+import Routes from '@refkinscallv/express-routing'
+Routes.get('/users', handler)
+```
+
+```typescript
+// TypeScript - No changes
+import Routes from '@refkinscallv/express-routing'
+Routes.get('/users', handler)
+```
+
+### From 1.x to 2.0.x
 
 #### 1. Update Dependencies
 
@@ -224,9 +289,9 @@ Routes.get('/test', ({ res }: HttpContext) => {
 });
 ```
 
-### New Features in 2.0.1
+### New Features in 2.0.x
 
-#### Route Inspection
+#### Route Inspection (Added in 2.0.1)
 
 ```javascript
 Routes.get('/users', handler);
@@ -293,9 +358,10 @@ MIT License - see LICENSE file for details
 
 | Version | Release Date | Major Changes |
 |---------|--------------|---------------|
-| 2.0.1   | 2025-01-03  | Express 5, Node 22, Full ESM/TS support |
-| 1.2.1   | 2024-12-15  | Basic ESM, TypeScript definitions |
-| 1.1.1   | 2024-12-10  | Controller fixes |
-| 1.1.0   | 2024-12-01  | Multiple methods, instance controllers |
-| 1.0.5   | 2024-11-15  | Group middleware fixes |
-| 1.0.0   | 2024-11-01  | Initial release |
+| 2.0.2   | 2026-01-09  | Fixed CommonJS import (no more `.default`) |
+| 2.0.1   | 2026-01-03  | Express 5, Node 22, Full ESM/TS support |
+| 1.2.1   | 2025-12-15  | Basic ESM, TypeScript definitions |
+| 1.1.1   | 2025-12-10  | Controller fixes |
+| 1.1.0   | 2025-12-01  | Multiple methods, instance controllers |
+| 1.0.5   | 2025-11-15  | Group middleware fixes |
+| 1.0.0   | 2025-11-01  | Initial release |

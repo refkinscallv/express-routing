@@ -19,7 +19,7 @@ const authMiddleware = (req, res, next) => {
 Routes.get('/', ({ res }) => {
     res.json({
         message: 'ESM Example Server',
-        version: '2.0.1',
+        version: '2.0.2',
         module: 'ESM'
     });
 });
