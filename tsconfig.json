@@ -8,18 +8,13 @@
         "strict": true,
         "moduleResolution": "nodenext",
         "resolveJsonModule": true,
-        "declaration": true,
-        "declarationMap": true,
-        "sourceMap": true,
-        "outDir": "./dist",
-        "rootDir": "./",
+        "noEmit": true,
         "types": ["node", "jest", "express"]
     },
     "include": [
-        "src/**/*",
         "types/**/*",
         "tests/**/*",
         "example/**/*"
     ],
-    "exclude": ["example", "tests", "node_modules"]
+    "exclude": ["node_modules"]
 }
