@@ -21,8 +21,5 @@
         "tests/**/*",
         "example/**/*"
     ],
-    "exclude": [
-        "node_modules",
-        "dist"
-    ]
+    "exclude": ["example", "tests", "node_modules"]
 }
