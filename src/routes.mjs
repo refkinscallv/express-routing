@@ -3,7 +3,7 @@
  * @description Laravel-style routing system for Express.js with support for CommonJS, ESM, and TypeScript
  * @author Refkinscallv
  * @repository https://github.com/refkinscallv/express-routing
- * @version 2.0.2
+ * @version 3.0.0
  * @date 2026
  */
 
@@ -12,30 +12,83 @@ export default class Routes {
     static prefix = ''
     static groupMiddlewares = []
     static globalMiddlewares = []
+    static _errorHandler = null
+    static _maintenanceMode = false
+    static _maintenanceHandler = null
 
-    /**
-     * Normalize path by removing duplicate slashes and ensuring leading slash
-     * @param {string} path - Path to normalize
-     * @returns {string} Normalized path
-     */
     static normalizePath(path) {
-        return '/' + path
-            .split('/')
-            .filter(Boolean)
-            .join('/')
+        return '/' + path.split('/').filter(Boolean).join('/')
+    }
+
+    static nameToPath(name) {
+        let result = name.replace(/_/g, '-')
+        result = result.replace(/([a-z])([A-Z][a-z])/g, '$1-$2')
+        return result.toLowerCase()
+    }
+
+    static resolveHandler(Controller, method) {
+        if (typeof Controller === 'function' && typeof Controller[method] === 'function') {
+            return Controller[method].bind(Controller)
+        }
+        if (typeof Controller === 'function') {
+            const instance = new Controller()
+            if (typeof instance[method] === 'function') {
+                return instance[method].bind(instance)
+            }
+            throw new Error(`Method "${method}" not found in controller instance "${Controller.name}"`)
+        }
+        if (typeof Controller === 'object' && Controller !== null && typeof Controller[method] === 'function') {
+            return Controller[method].bind(Controller)
+        }
+        throw new Error(`Cannot resolve handler for method "${method}"`)
     }
 
     /**
-     * Add a route with specified HTTP methods, path, handler, and middlewares
-     * @param {string|string[]} methods - HTTP method(s) for the route
-     * @param {string} path - Route path
-     * @param {Function|Array} handler - Route handler function or [Controller, method]
-     * @param {Function[]} middlewares - Array of middleware functions
+     * Normalize middleware — accepts plain function OR object/class with handle()
      */
+    static normalizeMiddleware(mw) {
+        if (typeof mw === 'function' && typeof mw.handle === 'function') {
+            return (req, res, next) => {
+                try {
+                    const result = mw.handle({ req, res, next, error: null })
+                    Promise.resolve(result).catch(next)
+                } catch (err) { next(err) }
+            }
+        }
+        if (typeof mw === 'function') return mw
+        if (typeof mw === 'object' && mw !== null && typeof mw.handle === 'function') {
+            return (req, res, next) => {
+                try {
+                    const result = mw.handle({ req, res, next, error: null })
+                    Promise.resolve(result).catch(next)
+                } catch (err) { next(err) }
+            }
+        }
+        throw new Error(`Invalid middleware: must be a function or an object/class with a "handle({ req, res, next, error })" method`)
+    }
+
+    /**
+     * Strict normalization for chaining — ONLY handle() classes/objects allowed.
+     * Plain Express functions are NOT permitted in chaining syntax.
+     */
+    static normalizeMiddlewareStrict(mw) {
+        const hasHandle =
+            (typeof mw === 'function' && typeof mw.handle === 'function') ||
+            (typeof mw === 'object' && mw !== null && typeof mw.handle === 'function')
+
+        if (!hasHandle) {
+            throw new Error(
+                `Chained middleware must implement a "handle({ req, res, next, error })" method. ` +
+                `Plain functions are not allowed in chaining syntax. Use the scoped callback form instead: ` +
+                `Routes.middleware([fn], () => { ... })`
+            )
+        }
+        return this.normalizeMiddleware(mw)
+    }
+
     static add(methods, path, handler, middlewares = []) {
         const methodArray = Array.isArray(methods) ? methods : [methods]
         const fullPath = this.normalizePath(`${this.prefix}/${path}`)
-
         this.routes.push({
             methods: methodArray,
             path: fullPath,
@@ -48,200 +101,237 @@ export default class Routes {
         })
     }
 
-    /**
-     * Register a GET route
-     * @param {string} path - Route path
-     * @param {Function|Array} handler - Route handler
-     * @param {Function[]} middlewares - Middleware functions
-     */
-    static get(path, handler, middlewares = []) {
-        this.add('get', path, handler, middlewares)
-    }
+    static get(path, handler, middlewares = [])     { this.add('get',     path, handler, middlewares) }
+    static post(path, handler, middlewares = [])    { this.add('post',    path, handler, middlewares) }
+    static put(path, handler, middlewares = [])     { this.add('put',     path, handler, middlewares) }
+    static delete(path, handler, middlewares = [])  { this.add('delete',  path, handler, middlewares) }
+    static patch(path, handler, middlewares = [])   { this.add('patch',   path, handler, middlewares) }
+    static options(path, handler, middlewares = []) { this.add('options', path, handler, middlewares) }
+    static head(path, handler, middlewares = [])    { this.add('head',    path, handler, middlewares) }
 
-    /**
-     * Register a POST route
-     * @param {string} path - Route path
-     * @param {Function|Array} handler - Route handler
-     * @param {Function[]} middlewares - Middleware functions
-     */
-    static post(path, handler, middlewares = []) {
-        this.add('post', path, handler, middlewares)
-    }
-
-    /**
-     * Register a PUT route
-     * @param {string} path - Route path
-     * @param {Function|Array} handler - Route handler
-     * @param {Function[]} middlewares - Middleware functions
-     */
-    static put(path, handler, middlewares = []) {
-        this.add('put', path, handler, middlewares)
-    }
-
-    /**
-     * Register a DELETE route
-     * @param {string} path - Route path
-     * @param {Function|Array} handler - Route handler
-     * @param {Function[]} middlewares - Middleware functions
-     */
-    static delete(path, handler, middlewares = []) {
-        this.add('delete', path, handler, middlewares)
-    }
-
-    /**
-     * Register a PATCH route
-     * @param {string} path - Route path
-     * @param {Function|Array} handler - Route handler
-     * @param {Function[]} middlewares - Middleware functions
-     */
-    static patch(path, handler, middlewares = []) {
-        this.add('patch', path, handler, middlewares)
-    }
-
-    /**
-     * Register an OPTIONS route
-     * @param {string} path - Route path
-     * @param {Function|Array} handler - Route handler
-     * @param {Function[]} middlewares - Middleware functions
-     */
-    static options(path, handler, middlewares = []) {
-        this.add('options', path, handler, middlewares)
-    }
-
-    /**
-     * Register a HEAD route
-     * @param {string} path - Route path
-     * @param {Function|Array} handler - Route handler
-     * @param {Function[]} middlewares - Middleware functions
-     */
-    static head(path, handler, middlewares = []) {
-        this.add('head', path, handler, middlewares)
-    }
-
-    /**
-     * Group routes with a common prefix and middlewares
-     * @param {string} prefix - URL prefix for grouped routes
-     * @param {Function} callback - Function containing route definitions
-     * @param {Function[]} middlewares - Middleware functions applied to all routes in group
-     */
     static group(prefix, callback, middlewares = []) {
         const previousPrefix = this.prefix
         const previousMiddlewares = this.groupMiddlewares
-
-        const fullPrefix = [previousPrefix, prefix]
-            .filter(Boolean)
-            .join('/')
-
+        const fullPrefix = [previousPrefix, prefix].filter(Boolean).join('/')
         this.prefix = this.normalizePath(fullPrefix)
-        this.groupMiddlewares = [...previousMiddlewares, ...middlewares]
-
+        this.groupMiddlewares = [
+            ...previousMiddlewares,
+            ...middlewares.map(mw => this.normalizeMiddleware(mw)),
+        ]
         callback()
-
         this.prefix = previousPrefix
         this.groupMiddlewares = previousMiddlewares
     }
 
     /**
-     * Apply global middlewares for the duration of the callback
-     * @param {Function[]} middlewares - Middleware functions
-     * @param {Function} callback - Function containing route definitions
+     * Apply global middlewares.
+     *
+     * SCOPED (with callback) — accepts plain functions OR handle() classes:
+     *   Routes.middleware([Mw, fn], () => { Routes.get(...) })
+     *
+     * CHAINING (without callback) — STRICT: only handle() classes/objects:
+     *   Routes.middleware([Mw]).get(path, handler)
+     *   Routes.middleware([Mw]).post(path, handler)
+     *   Routes.middleware([Mw]).group(prefix, callback)
+     *   ... and all other HTTP methods
+     *
+     * Each chained call is terminal — globalMiddlewares restored after.
      */
     static middleware(middlewares, callback) {
         const prevMiddlewares = this.globalMiddlewares
 
-        this.globalMiddlewares = [...prevMiddlewares, ...middlewares]
+        if (typeof callback === 'function') {
+            const normalized = middlewares.map(mw => this.normalizeMiddleware(mw))
+            this.globalMiddlewares = [...prevMiddlewares, ...normalized]
+            callback()
+            this.globalMiddlewares = prevMiddlewares
+            return this
+        }
 
-        callback()
+        // Chaining mode — strict handle() only
+        const normalized = middlewares.map(mw => this.normalizeMiddlewareStrict(mw))
+        this.globalMiddlewares = [...prevMiddlewares, ...normalized]
 
-        this.globalMiddlewares = prevMiddlewares
+        const self = this
+        const restore = () => { self.globalMiddlewares = prevMiddlewares }
+
+        return {
+            group(prefix, groupCallback, groupMiddlewares = []) {
+                self.group(prefix, groupCallback, groupMiddlewares); restore()
+            },
+            add(methods, path, handler, mws = []) {
+                self.add(methods, path, handler, mws); restore()
+            },
+            get(path, handler, mws = [])     { self.add('get',     path, handler, mws); restore() },
+            post(path, handler, mws = [])    { self.add('post',    path, handler, mws); restore() },
+            put(path, handler, mws = [])     { self.add('put',     path, handler, mws); restore() },
+            delete(path, handler, mws = [])  { self.add('delete',  path, handler, mws); restore() },
+            patch(path, handler, mws = [])   { self.add('patch',   path, handler, mws); restore() },
+            options(path, handler, mws = []) { self.add('options', path, handler, mws); restore() },
+            head(path, handler, mws = [])    { self.add('head',    path, handler, mws); restore() },
+        }
+    }
+
+    static errorHandler(handler) {
+        if (Array.isArray(handler) && handler.length === 2) {
+            const [Controller, method] = handler
+            this._errorHandler = this.resolveHandler(Controller, method)
+        } else if (typeof handler === 'function') {
+            this._errorHandler = handler
+        } else {
+            throw new Error('Routes.errorHandler: invalid handler — must be a function or [Controller, "method"]')
+        }
+    }
+
+    static maintenance(enabled, handler) {
+        this._maintenanceMode = Boolean(enabled)
+        if (handler) {
+            if (Array.isArray(handler) && handler.length === 2) {
+                const [Controller, method] = handler
+                this._maintenanceHandler = this.resolveHandler(Controller, method)
+            } else if (typeof handler === 'function') {
+                this._maintenanceHandler = handler
+            } else {
+                throw new Error('Routes.maintenance: invalid handler — must be a function or [Controller, "method"]')
+            }
+        }
     }
 
     /**
-     * Get all registered routes with their information
-     * @returns {Array} Array of route information objects
+     * Auto-register all methods of a controller as routes.
+     * @param {string} basePath
+     * @param {Function|Object} Controller
+     * @param {Object} [methodMiddlewares]  — per-method middleware map (optional):
+     *   { 'methodName': Mw, 'methodName': [Mw1, Mw2] }
      */
+    static controller(basePath, Controller, methodMiddlewares = {}) {
+        const HTTP_PREFIXES = ['post', 'put', 'delete', 'patch', 'options', 'head']
+        let methods = []
+
+        if (typeof Controller === 'function') {
+            const staticMethods = Object.getOwnPropertyNames(Controller).filter(
+                n => typeof Controller[n] === 'function' && !['length', 'name', 'prototype'].includes(n)
+            )
+            const proto = Controller.prototype
+            const instanceMethods = proto
+                ? Object.getOwnPropertyNames(proto).filter(
+                    n => n !== 'constructor' && typeof proto[n] === 'function'
+                )
+                : []
+            methods = [...new Set([...staticMethods, ...instanceMethods])]
+        } else if (typeof Controller === 'object' && Controller !== null) {
+            methods = Object.getOwnPropertyNames(Controller).filter(
+                n => typeof Controller[n] === 'function'
+            )
+        } else {
+            throw new Error('Routes.controller: invalid Controller — must be a class, instance, or plain object')
+        }
+
+        for (const methodName of methods) {
+            let httpMethod = 'get'
+            let pathSegment = methodName
+
+            const matchedPrefix = HTTP_PREFIXES.find(
+                p => methodName.toLowerCase().startsWith(p + '_') || methodName.toLowerCase() === p
+            )
+            if (matchedPrefix) {
+                httpMethod = matchedPrefix
+                pathSegment = methodName.slice(matchedPrefix.length).replace(/^_/, '')
+            }
+
+            let routePath
+            if (pathSegment === '' || pathSegment.toLowerCase() === 'index') {
+                routePath = this.normalizePath(basePath)
+            } else {
+                routePath = this.normalizePath(`${basePath}/${this.nameToPath(pathSegment)}`)
+            }
+
+            const specificMws = methodMiddlewares[methodName]
+                ? (Array.isArray(methodMiddlewares[methodName])
+                    ? methodMiddlewares[methodName]
+                    : [methodMiddlewares[methodName]])
+                : []
+
+            const handler = this.resolveHandler(Controller, methodName)
+
+            this.routes.push({
+                methods: [httpMethod],
+                path: routePath,
+                handler,
+                middlewares: [
+                    ...this.globalMiddlewares,
+                    ...this.groupMiddlewares,
+                    ...specificMws,
+                ],
+                _resolved: true,
+            })
+        }
+    }
+
     static allRoutes() {
         return this.routes.map(route => ({
             methods: route.methods,
             path: route.path,
             middlewareCount: route.middlewares.length,
-            handlerType: typeof route.handler === 'function' ? 'function' : 'controller'
+            handlerType: typeof route.handler === 'function' ? 'function' : 'controller',
         }))
     }
 
     /**
-     * Apply all registered routes to the provided Express Router instance
-     * Handles controller-method binding and middleware application
-     * All errors are thrown to Express error handling middleware
-     * @param {import('express').Router} router - Express Router instance
+     * Apply all registered routes to Express.
+     *   Routes.apply(app)           — mount directly on app
+     *   Routes.apply(app, router)   — mount on router, auto app.use(router)
      */
-    static async apply(router) {
+    static async apply(appOrRouter, router) {
+        const target = router || appOrRouter
+
+        if (this._maintenanceMode) {
+            const maintenanceFn = this._maintenanceHandler
+                || (({ res }) => res.status(503).json({
+                    status: false, code: 503,
+                    message: 'Service Unavailable - Maintenance Mode',
+                }))
+            target.use((req, res, next) => {
+                try {
+                    const result = maintenanceFn({ req, res, next, error: null })
+                    Promise.resolve(result).catch(next)
+                } catch (err) { next(err) }
+            })
+            if (router) appOrRouter.use(router)
+            return
+        }
+
+        const ALLOWED_METHODS = ['get', 'post', 'put', 'delete', 'patch', 'options', 'head']
+
         for (const route of this.routes) {
-            let handlerFunction = null
+            let handlerFunction
 
-            try {
-                if (typeof route.handler === 'function') {
-                    handlerFunction = route.handler
-                } else if (
-                    Array.isArray(route.handler) &&
-                    route.handler.length === 2
-                ) {
-                    const [Controller, method] = route.handler
-
-                    if (
-                        typeof Controller === 'function' &&
-                        typeof Controller[method] === 'function'
-                    ) {
-                        handlerFunction = Controller[method].bind(Controller)
-                    }
-                    else if (typeof Controller === 'function') {
-                        const instance = new Controller()
-                        if (typeof instance[method] === 'function') {
-                            handlerFunction = instance[method].bind(instance)
-                        } else {
-                            throw new Error(
-                                `Method "${method}" not found in controller instance "${Controller.name}"`
-                            )
-                        }
-                    } else {
-                        throw new Error(`Invalid controller type for route: ${route.path}`)
-                    }
-                } else {
-                    throw new Error(`Invalid handler format for route: ${route.path}`)
-                }
-            } catch (error) {
-                console.error(`[ROUTES] Error setting up route ${route.path}:`, error.message)
-                throw error
+            if (route._resolved) {
+                handlerFunction = route.handler
+            } else if (typeof route.handler === 'function') {
+                handlerFunction = route.handler
+            } else if (Array.isArray(route.handler) && route.handler.length === 2) {
+                const [Controller, method] = route.handler
+                handlerFunction = this.resolveHandler(Controller, method)
+            } else {
+                throw new Error(`Invalid handler format for route: ${route.path}`)
             }
 
             if (!handlerFunction) continue
 
             for (const method of route.methods) {
-                const allowedMethods = [
-                    'get',
-                    'post',
-                    'put',
-                    'delete',
-                    'patch',
-                    'options',
-                    'head',
-                ]
-
-                if (!allowedMethods.includes(method)) {
-                    const error = new Error(
-                        `Invalid HTTP method: ${method} for route: ${route.path}`
-                    )
-                    console.error(`[ROUTES]`, error.message)
-                    throw error
+                if (!ALLOWED_METHODS.includes(method)) {
+                    throw new Error(`Invalid HTTP method "${method}" for route: ${route.path}`)
                 }
 
-                router[method](
+                const normalizedMiddlewares = route.middlewares.map(mw => this.normalizeMiddleware(mw))
+
+                target[method](
                     route.path,
-                    ...(route.middlewares || []),
+                    ...normalizedMiddlewares,
                     async (req, res, next) => {
                         try {
-                            const ctx = { req, res, next }
-                            const result = handlerFunction(ctx)
+                            const result = handlerFunction({ req, res, next, error: null })
                             await Promise.resolve(result)
                         } catch (error) {
                             next(error)
@@ -250,5 +340,19 @@ export default class Routes {
                 )
             }
         }
+
+        if (this._errorHandler) {
+            const errFn = this._errorHandler
+            target.use((error, req, res, next) => {
+                try {
+                    const result = errFn({ req, res, next, error })
+                    Promise.resolve(result).catch(err => next(err))
+                } catch (err) { next(err) }
+            })
+        }
+
+        if (router) appOrRouter.use(router)
     }
 }
+
+export { Routes }

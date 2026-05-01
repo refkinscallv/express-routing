@@ -1,42 +1,48 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Application, Router, Request, Response, NextFunction } from 'express';
 
 /**
- * HTTP context passed to route handlers
+ * HTTP context passed to ALL handlers and handle() middleware — always { req, res, next, error }
  */
 export interface HttpContext {
     req: Request;
     res: Response;
     next: NextFunction;
+    /** Populated in errorHandler, null in normal route/middleware handlers */
+    error: Error | null;
 }
 
-/**
- * Route handler function type
- */
+/** Route handler function — receives the full HttpContext */
 export type RouteHandler = (ctx: HttpContext) => void | Promise<void>;
 
-/**
- * Controller method reference
- */
+/** Controller method reference tuple */
 export type ControllerHandler = [any, string];
 
-/**
- * Handler can be either a function or controller reference
- */
+/** Handler can be an inline function or a controller binding */
 export type Handler = RouteHandler | ControllerHandler;
 
 /**
- * Middleware function type
+ * Middleware — plain Express function OR object/class with handle()
+ *
+ * PLAIN FUNCTION — allowed in scoped Routes.middleware([fn], () => { ... }) and per-route:
+ *   (req, res, next) => void
+ *
+ * HANDLE CLASS — required in chaining Routes.middleware([Mw]).get(...):
+ *   class Mw { static handle({ req, res, next, error }: HttpContext): void }
+ *   class Mw { handle({ req, res, next, error }: HttpContext): void }
+ *   const obj = { handle({ req, res, next, error }: HttpContext): void }
  */
-export type Middleware = (req: Request, res: Response, next: NextFunction) => void | Promise<void>;
+export type MiddlewareFn = (req: Request, res: Response, next: NextFunction) => void | Promise<void>;
 
-/**
- * HTTP methods supported by the router
- */
+export interface MiddlewareClass {
+    handle(ctx: HttpContext): void | Promise<void>;
+}
+
+export type Middleware = MiddlewareFn | MiddlewareClass | (new () => MiddlewareClass);
+
+/** HTTP methods supported by the router */
 export type HttpMethod = 'get' | 'post' | 'put' | 'delete' | 'patch' | 'options' | 'head';
 
-/**
- * Route information object
- */
+/** Route information object returned by allRoutes() */
 export interface RouteInfo {
     methods: HttpMethod[];
     path: string;
@@ -45,137 +51,125 @@ export interface RouteInfo {
 }
 
 /**
- * Laravel-style routing system for Express.js
+ * Per-method middleware map for Routes.controller().
+ * Keys are controller method names; values are a single middleware or array.
+ * Only handle()-based middleware classes/objects are recommended here.
  */
+export type MethodMiddlewareMap = Record<string, Middleware | Middleware[]>;
+
+/**
+ * Proxy returned by Routes.middleware() when called WITHOUT a callback (chaining mode).
+ *
+ * STRICT: only handle()-based middleware classes/objects are allowed.
+ * Each method call is terminal — globalMiddlewares are restored after.
+ *
+ * Usage:
+ *   Routes.middleware([Mw]).get(path, handler)
+ *   Routes.middleware([Mw]).post(path, handler)
+ *   Routes.middleware([Mw]).group(prefix, callback)
+ */
+export interface MiddlewareChain {
+    group(prefix: string, callback: () => void, middlewares?: Middleware[]): void;
+    add(methods: HttpMethod | HttpMethod[], path: string, handler: Handler, middlewares?: Middleware[]): void;
+    get(path: string, handler: Handler, middlewares?: Middleware[]): void;
+    post(path: string, handler: Handler, middlewares?: Middleware[]): void;
+    put(path: string, handler: Handler, middlewares?: Middleware[]): void;
+    delete(path: string, handler: Handler, middlewares?: Middleware[]): void;
+    patch(path: string, handler: Handler, middlewares?: Middleware[]): void;
+    options(path: string, handler: Handler, middlewares?: Middleware[]): void;
+    head(path: string, handler: Handler, middlewares?: Middleware[]): void;
+}
+
 export default class Routes {
-    /**
-     * All registered routes
-     */
     static routes: Array<{
         methods: HttpMethod[];
         path: string;
         handler: Handler;
         middlewares: Middleware[];
+        _resolved?: boolean;
     }>;
-
-    /**
-     * Current route prefix
-     */
     static prefix: string;
-
-    /**
-     * Group-level middlewares
-     */
     static groupMiddlewares: Middleware[];
-
-    /**
-     * Global-level middlewares
-     */
     static globalMiddlewares: Middleware[];
+    static _errorHandler: RouteHandler | null;
+    static _maintenanceMode: boolean;
+    static _maintenanceHandler: RouteHandler | null;
 
-    /**
-     * Normalize path by removing duplicate slashes and ensuring leading slash
-     * @param path - Path to normalize
-     * @returns Normalized path
-     */
     static normalizePath(path: string): string;
 
     /**
-     * Add a route with specified HTTP methods, path, handler, and middlewares
-     * @param methods - HTTP method(s) for the route
-     * @param path - Route path
-     * @param handler - Route handler function or controller reference
-     * @param middlewares - Array of middleware functions
+     * Convert method/function name to kebab-case URL segment.
+     *   samplePath  → sample-path
+     *   SamplePath  → sample-path
+     *   sample_path → sample-path
+     *   Samplepath  → samplepath
      */
-    static add(
-        methods: HttpMethod | HttpMethod[],
-        path: string,
-        handler: Handler,
-        middlewares?: Middleware[]
-    ): void;
+    static nameToPath(name: string): string;
+
+    static resolveHandler(Controller: any, method: string): RouteHandler;
 
     /**
-     * Register a GET route
-     * @param path - Route path
-     * @param handler - Route handler
-     * @param middlewares - Middleware functions
+     * Normalize middleware — accepts plain function OR handle() class/object.
+     * Used for scoped middleware and per-route middleware.
      */
+    static normalizeMiddleware(mw: Middleware): MiddlewareFn;
+
+    /**
+     * Strict normalization — ONLY handle() classes/objects allowed.
+     * Used internally by chaining syntax. Throws if a plain function is passed.
+     */
+    static normalizeMiddlewareStrict(mw: Middleware): MiddlewareFn;
+
+    static add(methods: HttpMethod | HttpMethod[], path: string, handler: Handler, middlewares?: Middleware[]): void;
     static get(path: string, handler: Handler, middlewares?: Middleware[]): void;
-
-    /**
-     * Register a POST route
-     * @param path - Route path
-     * @param handler - Route handler
-     * @param middlewares - Middleware functions
-     */
     static post(path: string, handler: Handler, middlewares?: Middleware[]): void;
-
-    /**
-     * Register a PUT route
-     * @param path - Route path
-     * @param handler - Route handler
-     * @param middlewares - Middleware functions
-     */
     static put(path: string, handler: Handler, middlewares?: Middleware[]): void;
-
-    /**
-     * Register a DELETE route
-     * @param path - Route path
-     * @param handler - Route handler
-     * @param middlewares - Middleware functions
-     */
     static delete(path: string, handler: Handler, middlewares?: Middleware[]): void;
-
-    /**
-     * Register a PATCH route
-     * @param path - Route path
-     * @param handler - Route handler
-     * @param middlewares - Middleware functions
-     */
     static patch(path: string, handler: Handler, middlewares?: Middleware[]): void;
-
-    /**
-     * Register an OPTIONS route
-     * @param path - Route path
-     * @param handler - Route handler
-     * @param middlewares - Middleware functions
-     */
     static options(path: string, handler: Handler, middlewares?: Middleware[]): void;
-
-    /**
-     * Register a HEAD route
-     * @param path - Route path
-     * @param handler - Route handler
-     * @param middlewares - Middleware functions
-     */
     static head(path: string, handler: Handler, middlewares?: Middleware[]): void;
-
-    /**
-     * Group routes with a common prefix and middlewares
-     * @param prefix - URL prefix for grouped routes
-     * @param callback - Function containing route definitions
-     * @param middlewares - Middleware functions applied to all routes in group
-     */
     static group(prefix: string, callback: () => void, middlewares?: Middleware[]): void;
 
     /**
-     * Apply global middlewares for the duration of the callback
-     * @param middlewares - Middleware functions
-     * @param callback - Function containing route definitions
+     * Apply global middlewares.
+     *
+     * SCOPED (with callback) — accepts plain functions OR handle() classes:
+     *   Routes.middleware([Mw, fn], () => { Routes.get(...) })
+     *   Returns `typeof Routes` for fluency.
+     *
+     * CHAINING (without callback) — STRICT: only handle() classes/objects:
+     *   Routes.middleware([Mw]).get(path, handler)
+     *   Routes.middleware([Mw]).post(path, handler)
+     *   Routes.middleware([Mw]).group(prefix, callback)
+     *   Returns MiddlewareChain — each call is terminal.
      */
-    static middleware(middlewares: Middleware[], callback: () => void): void;
+    static middleware(middlewares: Middleware[], callback: () => void): typeof Routes;
+    static middleware(middlewares: Middleware[]): MiddlewareChain;
+
+    static errorHandler(handler: Handler): void;
+    static maintenance(enabled: boolean, handler?: Handler): void;
 
     /**
-     * Get all registered routes with their information
-     * @returns Array of route information objects
+     * Auto-register all methods of a controller as routes.
+     *
+     * @param basePath  Base URL for the controller
+     * @param Controller  Class (static or instance) or plain object
+     * @param methodMiddlewares  Optional per-method middleware map:
+     *   {
+     *     'index':      AuthMiddleware,
+     *     'myProfile':  [AuthMiddleware, LogMiddleware],
+     *   }
      */
+    static controller(basePath: string, Controller: any, methodMiddlewares?: MethodMiddlewareMap): void;
+
     static allRoutes(): RouteInfo[];
 
     /**
-     * Apply all registered routes to the provided Express Router instance
-     * @param router - Express Router instance
+     * Apply routes to Express.
+     *   Routes.apply(app)           — direct mount
+     *   Routes.apply(app, router)   — auto app.use(router)
      */
-    static apply(router: Router): Promise<void>;
+    static apply(appOrRouter: Application | Router, router?: Router): Promise<void>;
 }
 
 export { Routes };

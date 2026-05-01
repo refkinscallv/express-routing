@@ -1,6 +1,26 @@
 # @refkinscallv/express-routing
 
-Laravel-style routing system for Express.js in JavaScript. Clean route definitions, middleware support, and controller bindings with full TypeScript support.
+[![npm version](https://img.shields.io/npm/v/@refkinscallv/express-routing)](https://www.npmjs.com/package/@refkinscallv/express-routing)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+Laravel-style routing system for Express.js — with full support for **CommonJS**, **ESM**, and **TypeScript**.
+
+---
+
+## Features
+
+- ✅ Laravel-style route grouping and prefixing
+- ✅ `handle()`-based middleware — no need to reference specific methods
+- ✅ Strict Chaining: `Routes.middleware([Mw]).get(...)` or `.group(...)`
+- ✅ `Routes.apply(app, router)` — auto mounts router
+- ✅ `Routes.controller()` — auto-register all methods with optional per-method middlewares
+- ✅ `Routes.errorHandler()` — global typed error handler
+- ✅ `Routes.maintenance()` — toggle maintenance mode
+- ✅ `HttpContext` with `{ req, res, next, error }` in all handlers
+- ✅ Static class, instance class, and plain object controllers
+- ✅ CommonJS, ESM, and TypeScript support
+
+---
 
 ## Installation
 
@@ -8,224 +28,117 @@ Laravel-style routing system for Express.js in JavaScript. Clean route definitio
 npm install @refkinscallv/express-routing
 ```
 
-## Features
-
-- Simple and clean route declarations (get, post, put, delete, patch, options, head)
-- Grouped routes with prefix
-- Middleware stack: per-route and group-level
-- Controller-method pair as route handler
-- Supports HttpContext style handlers: { req, res, next }
-- Auto-binds controller methods
-- Full CommonJS, ESM, and TypeScript support
-- Error handling delegated to Express
-- Route inspection with allRoutes method
-- Fully Express-compatible
+---
 
 ## Quick Start
 
 ### CommonJS
 
-```javascript
-const express = require('express');
-const Routes = require('@refkinscallv/express-routing');
+```js
+const express = require('express')
+const Routes = require('@refkinscallv/express-routing')
 
-const app = express();
-const router = express.Router();
+const app = express()
+const router = express.Router()
+app.use(express.json())
 
-Routes.get('/hello', ({ res }) => {
-  res.send('Hello World');
-});
+Routes.get('/', ({ res }) => res.json({ message: 'Hello World' }))
 
-Routes.apply(router);
-app.use(router);
-
-app.listen(3000);
+Routes.apply(app, router).then(() => {
+    app.listen(3000)
+})
 ```
 
-### ESM
+---
 
-```javascript
-import express from 'express';
-import Routes from '@refkinscallv/express-routing';
+## Middleware
 
-const app = express();
-const router = express.Router();
+### New style — class or object with `handle()`
 
-Routes.get('/hello', ({ res }) => {
-  res.send('Hello World');
-});
+**Highly Recommended.** When chaining (`Routes.middleware([...]).get(...)`), middleware **MUST** be an object or class that implements a `handle()` method.
 
-await Routes.apply(router);
-app.use(router);
-
-app.listen(3000);
-```
-
-### TypeScript
-
-```typescript
-import express from 'express';
-import Routes from '@refkinscallv/express-routing';
-
-const app = express();
-const router = express.Router();
-
-Routes.get('/hello', ({ res }) => {
-  res.send('Hello World');
-});
-
-await Routes.apply(router);
-app.use(router);
-
-app.listen(3000);
-```
-
-## Usage Examples
-
-### Basic Route
-
-```javascript
-Routes.get('/hello', ({ res }) => {
-  res.send('Hello World');
-});
-```
-
-### With Middleware
-
-```javascript
-const authMiddleware = (req, res, next) => {
-  // auth logic
-  next();
-};
-
-Routes.post('/secure', ({ res }) => res.send('Protected'), [authMiddleware]);
-```
-
-### Controller Binding
-
-```javascript
-class UserController {
-  static index({ res }) {
-    res.send('User List');
-  }
+```js
+class AuthMiddleware {
+    static handle({ req, res, next }) {
+        if (!req.headers.authorization) {
+            return res.status(401).json({ error: 'Unauthorized' })
+        }
+        next()
+    }
 }
 
-Routes.get('/users', [UserController, 'index']);
+// Chaining (Strict mode: only handle() allowed)
+Routes.middleware([AuthMiddleware]).group('/api', () => { ... })
+Routes.middleware([AuthMiddleware]).get('/secured', handler)
+
+// Scoped (with callback)
+Routes.middleware([AuthMiddleware], () => {
+    Routes.get('/secured', handler)
+})
 ```
 
-Class-based handlers will auto-bind to static or instance methods.
+### Old style — plain Express function (still works)
 
-### Grouped Routes
+Only works in **scoped** calls or **route-level** injection.
 
-```javascript
-Routes.group('/admin', () => {
-  Routes.get('/dashboard', ({ res }) => res.send('Admin Panel'));
-});
+```js
+const mw = (req, res, next) => { req.user = 'guest'; next() }
+Routes.middleware([mw], () => {
+    Routes.get('/route', handler)
+})
 ```
 
-With middleware:
+---
 
-```javascript
-Routes.group('/secure', () => {
-  Routes.get('/data', ({ res }) => res.send('Secure Data'));
-}, [authMiddleware]);
+## Route Groups
+
+```js
+Routes.group('/api', () => {
+    Routes.get('/users', handler)       // GET /api/users
+    Routes.post('/users', handler)      // POST /api/users
+
+    Routes.group('/v1', () => {
+        Routes.get('/status', handler)  // GET /api/v1/status
+    })
+})
 ```
 
-### Global Middleware Scope
+---
 
-```javascript
-Routes.middleware([authMiddleware], () => {
-  Routes.get('/profile', ({ res }) => res.send('My Profile'));
-});
+## Controllers
+
+### `Routes.controller()` — auto-routing
+
+```js
+class UserController {
+    static index({ res }) { res.json({ users: [] }) }      // GET /users
+    static myProfile({ res }) { res.json({}) }             // GET /users/my-profile
+    static post_create({ req, res }) { res.json({}) }      // POST /users/create
+}
+
+// Controller with optional per-method middlewares
+Routes.controller('users', UserController, {
+    'myProfile': AuthMiddleware,
+    'post_create': [AuthMiddleware, AdminMiddleware]
+})
 ```
 
-### Multiple HTTP Methods
+### `[Controller, 'method']` — explicit binding
 
-```javascript
-Routes.add(['get', 'post'], '/handle', ({ req, res }) => {
-  res.send(`Method: ${req.method}`);
-});
+```js
+class UserController {
+    static index({ req, res }) { res.json({ users: [] }) }
+}
+
+Routes.get('/users', [UserController, 'index'])
 ```
 
-### Inspecting Routes
-
-```javascript
-Routes.get('/hello', ({ res }) => res.send('Hello'));
-Routes.post('/world', ({ res }) => res.send('World'));
-
-const allRoutes = Routes.allRoutes();
-console.log(allRoutes);
-// Output:
-// [
-//   { methods: ['get'], path: '/hello', middlewareCount: 0, handlerType: 'function' },
-//   { methods: ['post'], path: '/world', middlewareCount: 0, handlerType: 'function' }
-// ]
-```
+---
 
 ## API Reference
 
-See [API.md](API.md) for complete API documentation.
-
-## Error Handling
-
-All errors during route execution are automatically passed to Express error handling middleware using `next(error)`. You can define your error handler:
-
-```javascript
-app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).json({ error: err.message });
-});
-```
-
-## Middleware Execution Order
-
-```
-[ Global Middleware ] → [ Group Middleware ] → [ Route Middleware ]
-```
-
-## Handler Execution
-
-- If function: executed directly
-- If [Controller, 'method']: auto-instantiated (if needed), method is called
-
-## Testing
-
-```bash
-npm test              # Run all tests
-npm run test:cjs      # Test CommonJS
-npm run test:esm      # Test ESM
-npm run test:ts       # Test TypeScript
-```
-
-See [TESTING.md](TESTING.md) for detailed testing guide.
-
-## Examples
-
-```bash
-npm run example       # CommonJS example
-npm run example:esm   # ESM example
-npm run example:ts    # TypeScript example
-```
-
-Check `example/` directory for full working demos.
+See [API.md](API.md) for complete documentation.
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for version history.
-
-## Requirements
-
-- Node.js >= 14.0.0
-- Express >= 5.0.0
-
-## License
-
-MIT License © 2026 Refkinscallv
-
-## Author
-
-Refkinscallv <refkinscallv@gmail.com>
-
-## Repository
-
-https://github.com/refkinscallv/express-routing
+See [CHANGELOG.md](CHANGELOG.md).

@@ -1,12 +1,10 @@
 import request from 'supertest';
-import express, { Router, Request, Response, NextFunction } from 'express';
-// Import the actual CommonJS implementation
+import express, { Router, Request, Response, NextFunction, Application } from 'express';
 const Routes = require('../index.js');
-// Import only the types from the .d.ts file
 import type { HttpContext, RouteInfo } from '../types/index';
 
 describe('Express Routing - TypeScript', () => {
-    let app: express.Application;
+    let app: Application;
     let router: Router;
 
     beforeEach(() => {
@@ -14,6 +12,9 @@ describe('Express Routing - TypeScript', () => {
         Routes.prefix = '';
         Routes.groupMiddlewares = [];
         Routes.globalMiddlewares = [];
+        Routes._errorHandler = null;
+        Routes._maintenanceMode = false;
+        Routes._maintenanceHandler = null;
 
         app = express();
         router = Router();
@@ -21,124 +22,177 @@ describe('Express Routing - TypeScript', () => {
     });
 
     const setupApp = async (): Promise<void> => {
-        await Routes.apply(router);
-        app.use(router);
+        await Routes.apply(app, router);
     };
 
-    test('should work with TypeScript types', async () => {
+    test('TypeScript types work', async () => {
         Routes.get('/typescript', ({ req, res }: HttpContext) => {
             res.json({ typed: true, path: req.path });
         });
-
         await setupApp();
-
-        const response = await request(app).get('/typescript');
-        expect(response.body.typed).toBe(true);
+        expect((await request(app).get('/typescript')).body.typed).toBe(true);
     });
 
-    test('should type check route info', async () => {
-        Routes.get('/info', ({ res }: HttpContext) => {
-            res.send('ok')
-        });
-        Routes.post('/create', ({ res }: HttpContext) => {
-            res.send('created')
-        });
+    test('apply(app, router) auto-mounts router', async () => {
+        Routes.get('/ts-mount', ({ res }: HttpContext) => res.json({ ok: true }));
+        await Routes.apply(app, router);
+        expect((await request(app).get('/ts-mount')).body.ok).toBe(true);
+    });
 
+    test('handle() middleware class in TypeScript', async () => {
+        class AuthMw {
+            static handle({ req, res, next }: HttpContext): void {
+                (req as any).authed = true;
+                next();
+            }
+        }
+        Routes.middleware([AuthMw], () => {
+            Routes.get('/ts-authed', ({ req, res }: HttpContext) => {
+                res.json({ authed: (req as any).authed });
+            });
+        });
+        await setupApp();
+        expect((await request(app).get('/ts-authed')).body.authed).toBe(true);
+    });
+
+    test('chaining: middleware().group()', async () => {
+        class Mw {
+            static handle({ req, res, next }: HttpContext): void {
+                (req as any).chained = true;
+                next();
+            }
+        }
+        Routes.middleware([Mw]).group('/ts-chain', () => {
+            Routes.get('/val', ({ req, res }: HttpContext) => {
+                res.json({ chained: (req as any).chained });
+            });
+        });
+        await setupApp();
+        expect((await request(app).get('/ts-chain/val')).body.chained).toBe(true);
+    });
+
+    test('chaining: middleware().post()', async () => {
+        class Mw {
+            static handle({ req, res, next }: HttpContext): void {
+                (req as any).c = true;
+                next();
+            }
+        }
+        Routes.middleware([Mw]).post('/ts-chain-post', ({ req, res }: HttpContext) => {
+            res.json({ c: (req as any).c });
+        });
+        await setupApp();
+        expect((await request(app).post('/ts-chain-post')).body.c).toBe(true);
+    });
+
+    test('allRoutes() returns typed RouteInfo[]', () => {
+        Routes.get('/info', ({ res }: HttpContext) => res.send('ok'));
+        Routes.post('/create', ({ res }: HttpContext) => res.send('created'));
         const routes: RouteInfo[] = Routes.allRoutes();
         expect(routes[0].path).toBe('/info');
         expect(routes[0].handlerType).toBe('function');
         expect(routes[1].methods).toContain('post');
     });
 
-    test('should type check controller', async () => {
+    test('[Controller, method] binding', async () => {
         class UserController {
             static index({ res }: HttpContext): void {
                 res.json({ users: [] });
             }
-
             static show({ req, res }: HttpContext): void {
                 res.json({ id: req.params.id });
             }
         }
-
         Routes.get('/users', [UserController, 'index']);
         Routes.get('/users/:id', [UserController, 'show']);
-
         await setupApp();
-
-        const response = await request(app).get('/users');
-        expect(response.body.users).toEqual([]);
-
-        const showResponse = await request(app).get('/users/123');
-        expect(showResponse.body.id).toBe('123');
+        expect((await request(app).get('/users')).body.users).toEqual([]);
+        expect((await request(app).get('/users/123')).body.id).toBe('123');
     });
 
-    test('should handle typed middleware', async () => {
-        const authMiddleware = (
-            req: Request,
-            res: Response,
-            next: NextFunction
-        ): void => {
-            (req as any).authenticated = true;
-            next();
-        };
-
-        Routes.post('/auth', ({ req, res }: HttpContext) => {
-            res.json({ auth: (req as any).authenticated });
-        }, [authMiddleware]);
-
+    test('controller() auto-routing with per-method middleware in TypeScript', async () => {
+        class C {
+            static index({ res }: HttpContext): void { res.json({ ts: 'index' }); }
+            static myProfile({ req, res }: HttpContext): void { res.json({ ts: 'my-profile', authed: (req as any).authed }); }
+            static post_store({ req, res }: HttpContext): void { res.status(201).json({ stored: true }); }
+        }
+        class AuthMw {
+            static handle({ req, res, next }: HttpContext): void {
+                (req as any).authed = true;
+                next();
+            }
+        }
+        Routes.controller('ts-ctrl', C, {
+            'myProfile': AuthMw
+        });
         await setupApp();
-
-        const response = await request(app).post('/auth');
-        expect(response.body.auth).toBe(true);
+        expect((await request(app).get('/ts-ctrl')).body.ts).toBe('index');
+        const profileRes = await request(app).get('/ts-ctrl/my-profile');
+        expect(profileRes.body.ts).toBe('my-profile');
+        expect(profileRes.body.authed).toBe(true);
+        expect((await request(app).post('/ts-ctrl/store')).status).toBe(201);
     });
 
-    test('should handle async TypeScript handlers', async () => {
-        Routes.get('/async-ts', async ({ res }: HttpContext) => {
+    test('Routes.errorHandler() receives typed error', async () => {
+        Routes.get('/ts-err', (): void => { throw new Error('TS error'); });
+        Routes.errorHandler(({ res, error }: HttpContext): void => {
+            res.status(500).json({ caught: error?.message });
+        });
+        await setupApp();
+        expect((await request(app).get('/ts-err')).body.caught).toBe('TS error');
+    });
+
+    test('maintenance mode returns 503', async () => {
+        Routes.maintenance(true);
+        await setupApp();
+        expect((await request(app).get('/any')).status).toBe(503);
+    });
+
+    test('async TypeScript handler', async () => {
+        Routes.get('/async-ts', async ({ res }: HttpContext): Promise<void> => {
             await new Promise<void>(resolve => setTimeout(resolve, 10));
             res.json({ success: true });
         });
-
         await setupApp();
-
-        const response = await request(app).get('/async-ts');
-        expect(response.body.success).toBe(true);
+        expect((await request(app).get('/async-ts')).body.success).toBe(true);
     });
 
-    test('should type check grouped routes', async () => {
+    test('typed middleware (plain function)', async () => {
+        const authMw = (req: Request, res: Response, next: NextFunction): void => {
+            (req as any).authenticated = true;
+            next();
+        };
+        Routes.post('/auth', ({ req, res }: HttpContext) => {
+            res.json({ auth: (req as any).authenticated });
+        }, [authMw]);
+        await setupApp();
+        expect((await request(app).post('/auth')).body.auth).toBe(true);
+    });
+
+    test('grouped routes', async () => {
         Routes.group('/api', () => {
             Routes.get('/status', ({ res }: HttpContext) => {
                 res.json({ status: 'operational' });
             });
         });
-
         await setupApp();
-
-        const response = await request(app).get('/api/status');
-        expect(response.body.status).toBe('operational');
+        expect((await request(app).get('/api/status')).body.status).toBe('operational');
     });
 
-    test('should handle typed error in middleware', async () => {
-        const errorMiddleware = (
-            req: Request,
-            res: Response,
-            next: NextFunction
-        ): void => {
+    test('no console.error leaks', async () => {
+        const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        const errorMw = (req: Request, res: Response, next: NextFunction): void => {
             next(new Error('Middleware error'));
         };
-
-        Routes.get('/error-mw', ({ res }: HttpContext) => {
-            res.send('ok');
-        }, [errorMiddleware]);
-
+        Routes.get('/error-mw', ({ res }: HttpContext) => res.send('ok'), [errorMw]);
         await setupApp();
-
         app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
             res.status(500).json({ error: err.message });
         });
-
         const response = await request(app).get('/error-mw');
         expect(response.status).toBe(500);
         expect(response.body.error).toBe('Middleware error');
+        expect(spy).not.toHaveBeenCalled();
+        spy.mockRestore();
     });
 });

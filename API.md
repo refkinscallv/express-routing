@@ -1,495 +1,274 @@
-# API Documentation
+# API Reference — @refkinscallv/express-routing v3.0.0
 
-Complete API reference for @refkinscallv/express-routing
+## Overview
 
-## Table of Contents
+Laravel-style routing system for Express.js supporting CommonJS, ESM, and TypeScript.
+Version 3.0.0 introduces **handle()-based middleware**, **auto apply**, **chaining**, **controller auto-routing**, **errorHandler**, and **maintenance mode**.
 
-- [Static Properties](#static-properties)
-- [Static Methods](#static-methods)
-- [Types](#types)
+---
 
-## Static Properties
+## HttpContext
 
-### routes
+All route handlers and `handle()` middleware receive a single `HttpContext` object:
 
-```javascript
-static routes: Array
-```
-
-Array containing all registered routes with their configuration.
-
-### prefix
-
-```javascript
-static prefix: string
-```
-
-Current route prefix used for grouping.
-
-### groupMiddlewares
-
-```javascript
-static groupMiddlewares: Array<Function>
-```
-
-Middleware functions currently applied at the group level.
-
-### globalMiddlewares
-
-```javascript
-static globalMiddlewares: Array<Function>
-```
-
-Middleware functions currently applied at the global level.
-
-## Static Methods
-
-### normalizePath(path)
-
-Normalize a path by removing duplicate slashes and ensuring a leading slash.
-
-**Parameters:**
-- `path` (string): Path to normalize
-
-**Returns:** string - Normalized path
-
-**Example:**
-```javascript
-Routes.normalizePath('/api//users/') // Returns: '/api/users'
-```
-
-### add(methods, path, handler, middlewares)
-
-Register a route with one or more HTTP methods.
-
-**Parameters:**
-- `methods` (string | string[]): HTTP method(s) for the route
-- `path` (string): Route path
-- `handler` (Function | Array): Route handler or [Controller, method]
-- `middlewares` (Function[]): Optional middleware functions
-
-**Example:**
-```javascript
-Routes.add('get', '/users', ({ res }) => res.send('Users'));
-Routes.add(['get', 'post'], '/data', handler);
-```
-
-### get(path, handler, middlewares)
-
-Register a GET route.
-
-**Parameters:**
-- `path` (string): Route path
-- `handler` (Function | Array): Route handler
-- `middlewares` (Function[]): Optional middleware functions
-
-**Example:**
-```javascript
-Routes.get('/users', ({ res }) => res.json(users));
-Routes.get('/admin', [AdminController, 'index'], [authMiddleware]);
-```
-
-### post(path, handler, middlewares)
-
-Register a POST route.
-
-**Parameters:**
-- `path` (string): Route path
-- `handler` (Function | Array): Route handler
-- `middlewares` (Function[]): Optional middleware functions
-
-**Example:**
-```javascript
-Routes.post('/users', ({ req, res }) => {
-  const user = createUser(req.body);
-  res.json(user);
-});
-```
-
-### put(path, handler, middlewares)
-
-Register a PUT route.
-
-**Parameters:**
-- `path` (string): Route path
-- `handler` (Function | Array): Route handler
-- `middlewares` (Function[]): Optional middleware functions
-
-**Example:**
-```javascript
-Routes.put('/users/:id', [UserController, 'update']);
-```
-
-### delete(path, handler, middlewares)
-
-Register a DELETE route.
-
-**Parameters:**
-- `path` (string): Route path
-- `handler` (Function | Array): Route handler
-- `middlewares` (Function[]): Optional middleware functions
-
-**Example:**
-```javascript
-Routes.delete('/users/:id', ({ req, res }) => {
-  deleteUser(req.params.id);
-  res.sendStatus(204);
-});
-```
-
-### patch(path, handler, middlewares)
-
-Register a PATCH route.
-
-**Parameters:**
-- `path` (string): Route path
-- `handler` (Function | Array): Route handler
-- `middlewares` (Function[]): Optional middleware functions
-
-**Example:**
-```javascript
-Routes.patch('/users/:id', [UserController, 'patch']);
-```
-
-### options(path, handler, middlewares)
-
-Register an OPTIONS route.
-
-**Parameters:**
-- `path` (string): Route path
-- `handler` (Function | Array): Route handler
-- `middlewares` (Function[]): Optional middleware functions
-
-**Example:**
-```javascript
-Routes.options('/api/*', ({ res }) => {
-  res.set('Allow', 'GET, POST, PUT, DELETE');
-  res.sendStatus(200);
-});
-```
-
-### head(path, handler, middlewares)
-
-Register a HEAD route.
-
-**Parameters:**
-- `path` (string): Route path
-- `handler` (Function | Array): Route handler
-- `middlewares` (Function[]): Optional middleware functions
-
-**Example:**
-```javascript
-Routes.head('/users/:id', [UserController, 'exists']);
-```
-
-### group(prefix, callback, middlewares)
-
-Group routes under a common prefix with optional middlewares.
-
-**Parameters:**
-- `prefix` (string): URL prefix for all routes in the group
-- `callback` (Function): Function containing route definitions
-- `middlewares` (Function[]): Optional middleware functions
-
-**Example:**
-```javascript
-Routes.group('/api', () => {
-  Routes.get('/users', handler); // Becomes: /api/users
-  Routes.get('/posts', handler); // Becomes: /api/posts
-}, [apiMiddleware]);
-
-// Nested groups
-Routes.group('/api', () => {
-  Routes.group('/v1', () => {
-    Routes.get('/users', handler); // Becomes: /api/v1/users
-  });
-});
-```
-
-### middleware(middlewares, callback)
-
-Apply global middlewares to all routes defined within the callback.
-
-**Parameters:**
-- `middlewares` (Function[]): Middleware functions to apply
-- `callback` (Function): Function containing route definitions
-
-**Example:**
-```javascript
-Routes.middleware([authMiddleware, logMiddleware], () => {
-  Routes.get('/profile', handler);
-  Routes.get('/settings', handler);
-});
-```
-
-### allRoutes()
-
-Get information about all registered routes.
-
-**Returns:** Array<RouteInfo>
-
-**RouteInfo Object:**
-```javascript
-{
-  methods: string[],        // HTTP methods
-  path: string,             // Full route path
-  middlewareCount: number,  // Number of middlewares
-  handlerType: string       // 'function' or 'controller'
-}
-```
-
-**Example:**
-```javascript
-Routes.get('/users', handler);
-Routes.post('/posts', [PostController, 'create'], [authMiddleware]);
-
-const routes = Routes.allRoutes();
-console.log(routes);
-// Output:
-// [
-//   {
-//     methods: ['get'],
-//     path: '/users',
-//     middlewareCount: 0,
-//     handlerType: 'function'
-//   },
-//   {
-//     methods: ['post'],
-//     path: '/posts',
-//     middlewareCount: 1,
-//     handlerType: 'controller'
-//   }
-// ]
-```
-
-### apply(router)
-
-Apply all registered routes to an Express Router instance.
-
-**Parameters:**
-- `router` (express.Router): Express Router instance
-
-**Returns:** Promise<void>
-
-**Example:**
-```javascript
-const express = require('express');
-const Routes = require('@refkinscallv/express-routing');
-
-const app = express();
-const router = express.Router();
-
-// Define routes
-Routes.get('/hello', ({ res }) => res.send('Hello'));
-
-// Apply to router
-await Routes.apply(router);
-
-// Use in app
-app.use(router);
-```
-
-## Types
-
-### HttpContext
-
-Context object passed to route handlers.
-
-```typescript
+```ts
 interface HttpContext {
-  req: express.Request;
-  res: express.Response;
-  next: express.NextFunction;
+    req: Request;
+    res: Response;
+    next: NextFunction;
+    error: Error | null;  // populated in errorHandler, null otherwise
 }
 ```
 
-**Example:**
-```javascript
-Routes.get('/users', ({ req, res, next }) => {
-  try {
-    const users = getUsers();
-    res.json(users);
-  } catch (error) {
-    next(error);
-  }
-});
+---
+
+## Routes.apply(appOrRouter, router?)
+
+Apply all registered routes to Express.
+
+| Signature | Description |
+|-----------|-------------|
+| `Routes.apply(app)` | Mount routes directly on the Express app |
+| `Routes.apply(app, router)` | Mount routes on `router`, then auto `app.use(router)` |
+
+```js
+// Before (v2):
+Routes.apply(router)
+app.use(router)
+
+// After (v3):
+Routes.apply(app, router)    // router mounted automatically
+// or
+Routes.apply(app)            // direct mount
+```
+
+---
+
+## HTTP Route Methods
+
+```js
+Routes.get(path, handler, middlewares?)
+Routes.post(path, handler, middlewares?)
+Routes.put(path, handler, middlewares?)
+Routes.delete(path, handler, middlewares?)
+Routes.patch(path, handler, middlewares?)
+Routes.options(path, handler, middlewares?)
+Routes.head(path, handler, middlewares?)
+Routes.add(methods, path, handler, middlewares?)  // multiple methods
 ```
 
 ### Handler Types
 
-#### Function Handler
+```js
+// 1. Inline function — receives HttpContext
+Routes.get('/hello', ({ req, res, next, error }) => {
+    res.json({ message: 'Hello' })
+})
 
-```javascript
-({ req, res, next }) => void | Promise<void>
+// 2. Static class method reference
+Routes.get('/users', [UserController, 'index'])
+
+// 3. Instance class method reference
+Routes.get('/users', [UserController, 'index'])  // auto-instantiated
+
+// 4. Plain object method reference
+Routes.get('/users', [userObject, 'list'])
 ```
 
-#### Controller Handler
+---
 
-```javascript
-[ControllerClass, 'methodName']
+## Middleware
+
+Middleware can be:
+
+| Type | Description |
+|------|-------------|
+| Plain function `(req, res, next) => void` | Classic Express middleware — passed through as-is |
+| Object with `handle({ req, res, next, error })` | New style — auto-invoked |
+| Class with static `handle({ req, res, next, error })` | New style — auto-invoked |
+| Instance class with `handle({ req, res, next, error })` | New style — auto-invoked |
+
+### Route-level Middleware
+
+```js
+Routes.get('/path', handler, [Middleware1, Middleware2])
 ```
 
-**Static Method:**
-```javascript
-class UserController {
-  static index({ res }) {
-    res.send('Users');
-  }
+### Scoped Global Middleware
+
+```js
+Routes.middleware([Middleware1, Middleware2], () => {
+    Routes.get('/protected', handler)
+    Routes.post('/data', handler)
+})
+```
+
+### Chainable Middleware
+
+When used without a callback, `Routes.middleware()` returns a chaining object.
+**Note:** In chaining mode, middleware is STRICT and **must** implement a `handle()` method. Plain Express functions are not allowed.
+
+```js
+// Group chaining
+Routes.middleware([Middleware1, Middleware2])
+    .group('/prefix', () => {
+        Routes.get('/route', handler)
+    })
+
+// Route chaining (supported for all HTTP methods)
+Routes.middleware([AuthMiddleware]).get('/profile', handler)
+Routes.middleware([AuthMiddleware]).post('/settings', handler)
+```
+
+### Middleware Class Example
+
+```js
+// New style — class with static handle()
+class AuthMiddleware {
+    static handle({ req, res, next }) {
+        if (!req.headers.authorization) {
+            return res.status(401).json({ error: 'Unauthorized' })
+        }
+        next()
+    }
 }
 
-Routes.get('/users', [UserController, 'index']);
+Routes.middleware([AuthMiddleware], () => {
+    Routes.get('/secured', handler)
+})
+
+// Old style — plain function still works in scoped/route-level
+const logMw = (req, res, next) => { console.log(req.path); next() }
+Routes.middleware([logMw], () => {
+    Routes.get('/logged', handler)
+})
 ```
 
-**Instance Method:**
-```javascript
+---
+
+## Routes.group(prefix, callback, middlewares?)
+
+Group routes under a common URL prefix with optional middleware.
+
+```js
+Routes.group('/api', () => {
+    Routes.get('/users', handler)       // → GET /api/users
+    Routes.post('/users', handler)      // → POST /api/users
+
+    Routes.group('/v1', () => {
+        Routes.get('/status', handler)  // → GET /api/v1/status
+    }, [LogMiddleware])
+})
+```
+
+---
+
+## Routes.controller(basePath, Controller, methodMiddlewares?)
+
+Auto-register all methods of a controller as routes.
+
+### Rules
+
+| Method name | HTTP method | Path |
+|-------------|-------------|------|
+| `index` | GET | `/<basePath>` |
+| `camelCase` → `camel-case` | GET | `/<basePath>/camel-case` |
+| `PascalCase` → `pascal-case` | GET | `/<basePath>/pascal-case` |
+| `snake_case` → `snake-case` | GET | `/<basePath>/snake-case` |
+| `Singleword` → `singleword` | GET | `/<basePath>/singleword` |
+| `post_create` | POST | `/<basePath>/create` |
+| `put_update` | PUT | `/<basePath>/update` |
+| `delete_remove` | DELETE | `/<basePath>/remove` |
+
+### Controller Formats
+
+```js
+// Static class
 class UserController {
-  index({ res }) {
-    res.send('Users');
-  }
+    static index({ req, res }) { res.json({ users: [] }) }
+    static myProfile({ req, res }) { res.json({ profile: {} }) }
+    static post_create({ req, res }) { res.status(201).json({ created: true }) }
 }
 
-Routes.get('/users', [UserController, 'index']);
-```
-
-### Middleware
-
-Standard Express middleware function.
-
-```javascript
-(req, res, next) => void | Promise<void>
-```
-
-**Example:**
-```javascript
-const authMiddleware = (req, res, next) => {
-  if (!req.headers.authorization) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  next();
-};
-```
-
-## Error Handling
-
-All errors during route execution are automatically passed to Express error handling middleware.
-
-**Example:**
-```javascript
-// Route with potential error
-Routes.get('/users/:id', async ({ req, res }) => {
-  const user = await getUserById(req.params.id);
-  if (!user) {
-    throw new Error('User not found');
-  }
-  res.json(user);
-});
-
-// Express error handler
-app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(err.status || 500).json({
-    error: err.message
-  });
-});
-```
-
-## Middleware Execution Order
-
-Middlewares are executed in the following order:
-
-1. Global middlewares (from `Routes.middleware()`)
-2. Group middlewares (from `Routes.group()`)
-3. Route-specific middlewares (passed to individual route methods)
-
-**Example:**
-```javascript
-const globalMw = (req, res, next) => { console.log('Global'); next(); };
-const groupMw = (req, res, next) => { console.log('Group'); next(); };
-const routeMw = (req, res, next) => { console.log('Route'); next(); };
-
-Routes.middleware([globalMw], () => {
-  Routes.group('/api', () => {
-    Routes.get('/users', handler, [routeMw]);
-  }, [groupMw]);
-});
-
-// Execution: Global -> Group -> Route
-```
-
-## Best Practices
-
-### 1. Route Organization
-
-```javascript
-// routes/users.js
-module.exports = (Routes) => {
-  Routes.group('/users', () => {
-    Routes.get('/', [UserController, 'index']);
-    Routes.post('/', [UserController, 'create']);
-    Routes.get('/:id', [UserController, 'show']);
-    Routes.put('/:id', [UserController, 'update']);
-    Routes.delete('/:id', [UserController, 'destroy']);
-  });
-};
-
-// main.js
-require('./routes/users')(Routes);
-```
-
-### 2. Middleware Composition
-
-```javascript
-const authenticate = (req, res, next) => { /* ... */ next(); };
-const authorize = (role) => (req, res, next) => { /* ... */ next(); };
-const validate = (schema) => (req, res, next) => { /* ... */ next(); };
-
-Routes.post('/admin/users',
-  [AdminController, 'create'],
-  [authenticate, authorize('admin'), validate(userSchema)]
-);
-```
-
-### 3. Error Handling
-
-```javascript
-// Always use try-catch in async handlers
-Routes.get('/users/:id', async ({ req, res, next }) => {
-  try {
-    const user = await User.findById(req.params.id);
-    res.json(user);
-  } catch (error) {
-    next(error); // Pass to Express error handler
-  }
-});
-```
-
-### 4. Controller Organization
-
-```javascript
-class UserController {
-  static async index({ res }) {
-    const users = await User.findAll();
-    res.json(users);
-  }
-
-  static async show({ req, res }) {
-    const user = await User.findById(req.params.id);
-    res.json(user);
-  }
-
-  static async create({ req, res }) {
-    const user = await User.create(req.body);
-    res.status(201).json(user);
-  }
-
-  static async update({ req, res }) {
-    const user = await User.update(req.params.id, req.body);
-    res.json(user);
-  }
-
-  static async destroy({ req, res }) {
-    await User.delete(req.params.id);
-    res.sendStatus(204);
-  }
+// Per-method middleware mapping
+const middlewares = {
+    'myProfile': AuthMiddleware,
+    'post_create': [AuthMiddleware, AdminMiddleware]
 }
+
+Routes.controller('users', UserController, middlewares)
+```
+
+---
+
+## Routes.errorHandler(handler)
+
+Register a global error handler for all routes. Handler receives the full `HttpContext` including `error`.
+
+```js
+// Function
+Routes.errorHandler(({ req, res, next, error }) => {
+    res.status(error?.status || 500).json({ message: error?.message })
+})
+
+// Controller binding
+Routes.errorHandler([ErrorController, 'handle'])
+```
+
+> **Note:** The handler is registered as an Express 4-argument error middleware `(err, req, res, next)` at the end of the route chain. Call `Routes.apply()` after registering the handler.
+
+---
+
+## Routes.maintenance(enabled, handler?)
+
+Enable or disable maintenance mode. When enabled, all requests receive a 503 response before any route is evaluated.
+
+```js
+// Default 503 response
+Routes.maintenance(true)
+
+// Custom response
+Routes.maintenance(true, ({ req, res }) => {
+    res.status(503).json({ message: 'Back soon!', maintenance: true })
+})
+
+// Controller binding
+Routes.maintenance(true, [MaintenanceController, 'handle'])
+
+// Disable
+Routes.maintenance(false)
+```
+
+---
+
+## Routes.allRoutes()
+
+Returns an array of route information objects.
+
+```js
+const routes = Routes.allRoutes()
+// [{ methods, path, middlewareCount, handlerType }, ...]
+```
+
+---
+
+## Routes.normalizePath(path)
+
+Normalize a path string — removes duplicate slashes and ensures a leading `/`.
+
+```js
+Routes.normalizePath('//api//users//') // → '/api/users'
+```
+
+---
+
+## Routes.nameToPath(name)
+
+Convert a method or function name to a URL-friendly kebab-case segment.
+
+```js
+Routes.nameToPath('samplePath')  // → 'sample-path'
+Routes.nameToPath('SamplePath')  // → 'sample-path'
+Routes.nameToPath('sample_path') // → 'sample-path'
+Routes.nameToPath('Samplepath')  // → 'samplepath'
 ```

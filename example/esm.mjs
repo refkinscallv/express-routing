@@ -8,21 +8,45 @@ const PORT = process.env.PORT || 3001;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const authMiddleware = (req, res, next) => {
-    const token = req.headers.authorization;
-    if (!token) {
-        return res.status(401).json({ error: 'Unauthorized' });
+// ─── Middleware Classes ────────────────────────────────────────────────────────
+
+class AuthMiddleware {
+    static handle({ req, res, next }) {
+        const token = req.headers.authorization;
+        if (!token) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+        next();
     }
-    next();
+}
+
+const LogMiddleware = {
+    handle({ req, res, next }) {
+        console.log(`[ESM LOG] ${req.method} ${req.path}`);
+        next();
+    }
 };
 
+// ─── Routes ───────────────────────────────────────────────────────────────────
+
 Routes.get('/', ({ res }) => {
-    res.json({
-        message: 'ESM Example Server',
-        version: '2.0.2',
-        module: 'ESM'
+    res.json({ message: 'ESM Example Server', version: '3.0.0', module: 'ESM' });
+});
+
+// Middleware class via handle() — new style
+Routes.middleware([AuthMiddleware], () => {
+    Routes.get('/protected', ({ res }) => {
+        res.json({ message: 'Protected route — requires Authorization header', access: 'granted' });
     });
 });
+
+// Chaining: middleware().group()
+Routes.middleware([LogMiddleware])
+    .group('/log', () => {
+        Routes.get('/info', ({ res }) => {
+            res.json({ message: 'Logged route via chaining' });
+        });
+    });
 
 Routes.group('/api', () => {
     Routes.get('/hello', ({ res }) => {
@@ -37,48 +61,45 @@ Routes.group('/api', () => {
         Routes.get('/', ({ res }) => {
             res.json({ users: ['Alice', 'Bob', 'Charlie'] });
         });
-
         Routes.get('/:id', ({ req, res }) => {
             res.json({ id: req.params.id, name: 'User ' + req.params.id });
         });
     });
 });
 
-Routes.middleware([authMiddleware], () => {
-    Routes.get('/protected', ({ res }) => {
-        res.json({ message: 'This is protected', access: 'granted' });
-    });
-});
-
+// Controller auto-routing
 class DataController {
-    static async getData({ res }) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        res.json({
-            data: [1, 2, 3, 4, 5],
-            timestamp: new Date().toISOString()
-        });
+    static index({ res }) {
+        res.json({ data: [1, 2, 3, 4, 5], timestamp: new Date().toISOString() });
+    }
+
+    static async latestItems({ res }) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        res.json({ items: ['a', 'b', 'c'] });
+    }
+
+    static post_create({ req, res }) {
+        res.status(201).json({ created: true, body: req.body });
     }
 }
 
-Routes.get('/data', [DataController, 'getData']);
+Routes.controller('data', DataController);
+
+// Error handler
+Routes.errorHandler(({ req, res, next, error }) => {
+    res.status(error?.status || 500).json({
+        error: error?.message || 'Internal Server Error',
+        code: error?.status || 500,
+    });
+});
 
 Routes.get('/routes', ({ res }) => {
     const allRoutes = Routes.allRoutes();
-    res.json({
-        total: allRoutes.length,
-        routes: allRoutes
-    });
+    res.json({ total: allRoutes.length, routes: allRoutes });
 });
 
-await Routes.apply(router);
-app.use(router);
-
-app.use((err, req, res, next) => {
-    console.error('Error:', err.message);
-    res.status(err.status || 500).json({
-        error: err.message
-    });
-});
+// Routes.apply(app, router) — auto mounts router on app
+await Routes.apply(app, router);
 
 app.listen(PORT, () => {
     console.log(`ESM Server running at http://localhost:${PORT}`);

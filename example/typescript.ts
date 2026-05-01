@@ -1,12 +1,14 @@
-import express, { Router, Request, Response, NextFunction } from 'express';
-import Routes, { HttpContext } from '../types/index';
+import express, { Router, Request, Response, NextFunction, Application } from 'express';
+import Routes, { HttpContext, RouteInfo, MiddlewareClass } from '../types/index';
 
-const app = express();
+const app: Application = express();
 const router: Router = Router();
 const PORT: number = parseInt(process.env.PORT || '3002', 10);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface User {
     id: number;
@@ -14,32 +16,39 @@ interface User {
     email: string;
 }
 
+// ─── Data ─────────────────────────────────────────────────────────────────────
+
 const users: User[] = [
     { id: 1, name: 'Alice', email: 'alice@example.com' },
-    { id: 2, name: 'Bob', email: 'bob@example.com' }
+    { id: 2, name: 'Bob', email: 'bob@example.com' },
 ];
 
-const logMiddleware = (req: Request, res: Response, next: NextFunction): void => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-    next();
-};
+// ─── Middleware classes (new style — implement handle()) ───────────────────────
 
-const validateId = (req: Request, res: Response, next: NextFunction): void => {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) {
-        res.status(400).json({ error: 'Invalid ID' });
-        return;
+class LogMiddleware implements MiddlewareClass {
+    handle({ req, res, next }: HttpContext): void {
+        console.log(`[TS LOG] ${req.method} ${req.path}`);
+        next();
     }
-    next();
-};
+}
 
-Routes.middleware([logMiddleware], () => {
+class AuthMiddleware {
+    static handle({ req, res, next }: HttpContext): void {
+        const token = req.headers.authorization;
+        if (!token) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+        next();
+    }
+}
+
+// ─── Routes ───────────────────────────────────────────────────────────────────
+
+// Scoped global middleware via handle() — new style
+Routes.middleware([LogMiddleware], () => {
     Routes.get('/', ({ res }: HttpContext): void => {
-        res.json({
-            message: 'TypeScript Example Server',
-            version: '2.0.2',
-            language: 'TypeScript'
-        });
+        res.json({ message: 'TypeScript Example Server', version: '3.0.0', language: 'TypeScript' });
     });
 
     Routes.group('/api', () => {
@@ -50,20 +59,18 @@ Routes.middleware([logMiddleware], () => {
         Routes.get('/users/:id', ({ req, res }: HttpContext): void => {
             const id = parseInt(req.params.id, 10);
             const user = users.find(u => u.id === id);
-            
             if (!user) {
                 res.status(404).json({ error: 'User not found' });
                 return;
             }
-            
             res.json({ user });
-        }, [validateId]);
+        });
 
         Routes.post('/users', ({ req, res }: HttpContext): void => {
             const newUser: User = {
                 id: users.length + 1,
                 name: req.body.name,
-                email: req.body.email
+                email: req.body.email,
             };
             users.push(newUser);
             res.status(201).json({ user: newUser });
@@ -71,47 +78,50 @@ Routes.middleware([logMiddleware], () => {
     });
 });
 
-class StatsController {
-    static getStats({ res }: HttpContext): void {
-        res.json({
-            totalUsers: users.length,
-            totalRoutes: Routes.allRoutes().length,
-            timestamp: new Date().toISOString()
+// Chaining: middleware().group()
+Routes.middleware([AuthMiddleware])
+    .group('/secured', () => {
+        Routes.get('/profile', ({ res }: HttpContext): void => {
+            res.json({ message: 'Secured profile route' });
         });
+    });
+
+// Auto-routing from controller
+class StatsController {
+    static index({ res }: HttpContext): void {
+        res.json({ totalUsers: users.length, totalRoutes: Routes.allRoutes().length });
     }
 
-    static async getAsyncStats({ res }: HttpContext): Promise<void> {
-        await new Promise<void>(resolve => setTimeout(resolve, 100));
-        
-        res.json({
-            status: 'processed',
-            users: users.length,
-            routes: Routes.allRoutes().length
-        });
+    static async asyncStats({ res }: HttpContext): Promise<void> {
+        await new Promise<void>(resolve => setTimeout(resolve, 50));
+        res.json({ status: 'processed', users: users.length });
+    }
+
+    static post_reset({ req, res }: HttpContext): void {
+        res.json({ reset: true });
     }
 }
 
-Routes.get('/stats', [StatsController, 'getStats']);
-Routes.get('/stats/async', [StatsController, 'getAsyncStats']);
+Routes.controller('stats', StatsController);
 
-Routes.get('/routes', ({ res }: HttpContext): void => {
-    const allRoutes = Routes.allRoutes();
-    res.json({
-        total: allRoutes.length,
-        routes: allRoutes
+// Error handler (receives { req, res, next, error })
+Routes.errorHandler(({ req, res, next, error }: HttpContext): void => {
+    console.error('[ErrorHandler]', error?.message);
+    res.status((error as any)?.status || 500).json({
+        error: error?.message || 'Internal Server Error',
     });
 });
 
-(async () => {
-    await Routes.apply(router);
-    app.use(router);
+Routes.get('/routes', ({ res }: HttpContext): void => {
+    const allRoutes: RouteInfo[] = Routes.allRoutes();
+    res.json({ total: allRoutes.length, routes: allRoutes });
+});
 
-    app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-        console.error('Error:', err.message);
-        res.status(500).json({
-            error: err.message
-        });
-    });
+// ─── Apply ────────────────────────────────────────────────────────────────────
+
+(async () => {
+    // New API: auto mounts router on app
+    await Routes.apply(app, router);
 
     app.listen(PORT, () => {
         console.log(`TypeScript Server running at http://localhost:${PORT}`);
