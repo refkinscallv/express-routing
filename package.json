@@ -49,7 +49,7 @@
         "example:esm": "node example/esm.mjs",
         "example:ts": "ts-node example/typescript.ts",
         "build": "npm run build:types && npm run build:check",
-        "build:types": "tsc --declaration --emitDeclarationOnly --outDir types",
+        "build:types": "tsc --declaration --emitDeclarationOnly --outDir types --project tsconfig.build.json",
         "build:check": "tsc --noEmit && echo TypeScript definitions validated",
         "prepublishOnly": "npm run build && npm test"
     },
