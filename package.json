@@ -55,9 +55,8 @@
         "example": "node example/index.js",
         "example:esm": "node example/esm.mjs",
         "example:ts": "ts-node example/typescript.ts",
-       "build": "npm run build:check",
+        "build": "npm run build:check",
         "build:check": "tsc --noEmit && echo TypeScript definitions validated",
-        "build:types": "tsc --declaration --emitDeclarationOnly --outDir types --project tsconfig.build.json",
         "prepublishOnly": "npm run build && npm test"
     },
     "dependencies": {
