@@ -32,6 +32,9 @@ npm install @refkinscallv/express-routing
 
 ## Quick Start
 
+The `Routes` class is imported the **same, consistent way** in every module system —
+no `.default` access required. Pick the snippet that matches your project.
+
 ### CommonJS
 
 ```js
@@ -48,6 +51,42 @@ Routes.apply(app, router).then(() => {
     app.listen(3000)
 })
 ```
+
+### ESM
+
+```js
+import express from 'express'
+import Routes from '@refkinscallv/express-routing'
+
+const app = express()
+const router = express.Router()
+app.use(express.json())
+
+Routes.get('/', ({ res }) => res.json({ message: 'Hello World' }))
+
+await Routes.apply(app, router)
+app.listen(3000)
+```
+
+### TypeScript
+
+```ts
+import express, { Application, Router } from 'express'
+import Routes, { HttpContext } from '@refkinscallv/express-routing'
+
+const app: Application = express()
+const router: Router = Router()
+app.use(express.json())
+
+Routes.get('/', ({ res }: HttpContext) => res.json({ message: 'Hello World' }))
+
+await Routes.apply(app, router)
+app.listen(3000)
+```
+
+> **Note on imports:** `require('@refkinscallv/express-routing')` returns the `Routes` class
+> directly with full IDE autocomplete — no `.default` needed. The `.default` property is still
+> exported at runtime for backward compatibility with `3.0.x`.
 
 ---
 

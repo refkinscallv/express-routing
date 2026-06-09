@@ -5,6 +5,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [3.1.0] - 2026-06-10
+
+### 🐛 Fixes
+
+- **Consistent imports & IDE autocomplete across CommonJS, ESM, and TypeScript.**
+  Previously, CommonJS users had to write `require('@refkinscallv/express-routing').default`
+  to get type information and IDE autocomplete, and true-ESM consumers hit the same problem.
+  The root cause was a single ambiguous `types/index.d.ts` resolved as CommonJS (because the
+  package is `"type": "commonjs"`), which forced `.default` access for typing.
+
+  Now each module system resolves the `Routes` class **directly**:
+
+  ```js
+  // CommonJS — no more `.default`
+  const Routes = require('@refkinscallv/express-routing')
+
+  // ESM
+  import Routes from '@refkinscallv/express-routing'
+
+  // TypeScript
+  import Routes from '@refkinscallv/express-routing'
+  ```
+
+  > `require('@refkinscallv/express-routing').default` still works at runtime for backward compatibility.
+
+- **`example/typescript.ts` build error under `@types/express@5`.**
+  `req.params.id` now widens to `string | string[]`; the example casts to `string` before `parseInt`,
+  so `npm run build` (and therefore `prepublishOnly`) passes again.
+
+### 🔧 Improvements
+
+- Added dedicated, condition-specific type declarations:
+  - `types/index.d.mts` — ESM (`export default class Routes`) for the `import` condition.
+  - `types/index.d.cts` — CommonJS (`export = Routes`) for the `require` condition.
+  - `types/index.d.ts` — retained for the legacy top-level `types` field.
+- `package.json` `exports` map now declares per-condition `types` (nested `import`/`require`).
+- All version strings synchronized to `3.1.0`.
+
+### 📦 Dependencies
+
+- `express` → `^5.2.1`
+- `@types/express` → `^5.0.6`, `@types/node` → `^25.9.2`, `@types/jest` → `^30.0.0`,
+  `@types/supertest` → `^7.2.0`, `cross-env` → `^10.1.0`, `jest` → `^30.4.2`,
+  `nodemon` → `^3.1.14`, `supertest` → `^7.2.2`, `ts-jest` → `^29.4.11`, `typescript` → `^6.0.3`.
+
+---
+
 ## [3.0.0] - 2026-05-01
 
 ### 🚀 Breaking Changes

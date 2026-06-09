@@ -1,9 +1,30 @@
-# API Reference — @refkinscallv/express-routing v3.0.0
+# API Reference — @refkinscallv/express-routing v3.1.0
 
 ## Overview
 
 Laravel-style routing system for Express.js supporting CommonJS, ESM, and TypeScript.
-Version 3.0.0 introduces **handle()-based middleware**, **auto apply**, **chaining**, **controller auto-routing**, **errorHandler**, and **maintenance mode**.
+The v3 line introduces **handle()-based middleware**, **auto apply**, **chaining**, **controller auto-routing**, **errorHandler**, and **maintenance mode**.
+v3.1.0 adds **consistent imports** — the `Routes` class resolves directly (no `.default`) across all three module systems.
+
+---
+
+## Importing
+
+The `Routes` class is the default export and is imported identically everywhere:
+
+```js
+// CommonJS
+const Routes = require('@refkinscallv/express-routing')
+
+// ESM
+import Routes from '@refkinscallv/express-routing'
+
+// TypeScript (types come along automatically)
+import Routes, { HttpContext, RouteInfo, MiddlewareClass } from '@refkinscallv/express-routing'
+```
+
+> `require('@refkinscallv/express-routing').default` remains available at runtime for backward
+> compatibility with `3.0.x`, but is no longer required for IDE autocomplete.
 
 ---
 

@@ -142,7 +142,7 @@ Routes.middleware([LogMiddleware])
 // 4. Nested groups with middleware
 Routes.group('api', () => {
     Routes.get('status', ({ res }) => {
-        res.status(200).json({ status: 'ok', version: '3.0.0' });
+        res.status(200).json({ status: 'ok', version: '3.1.0' });
     });
 
     Routes.group('v1', () => {

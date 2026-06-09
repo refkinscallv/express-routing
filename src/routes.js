@@ -5,7 +5,7 @@
  * @description Laravel-style routing system for Express.js with support for CommonJS, ESM, and TypeScript
  * @author Refkinscallv
  * @repository https://github.com/refkinscallv/express-routing
- * @version 3.0.0
+ * @version 3.1.0
  * @date 2026
  */
 

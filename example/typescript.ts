@@ -48,7 +48,7 @@ class AuthMiddleware {
 // Scoped global middleware via handle() — new style
 Routes.middleware([LogMiddleware], () => {
     Routes.get('/', ({ res }: HttpContext): void => {
-        res.json({ message: 'TypeScript Example Server', version: '3.0.0', language: 'TypeScript' });
+        res.json({ message: 'TypeScript Example Server', version: '3.1.0', language: 'TypeScript' });
     });
 
     Routes.group('/api', () => {
@@ -57,7 +57,7 @@ Routes.middleware([LogMiddleware], () => {
         });
 
         Routes.get('/users/:id', ({ req, res }: HttpContext): void => {
-            const id = parseInt(req.params.id, 10);
+            const id = parseInt(req.params.id as string, 10);
             const user = users.find(u => u.id === id);
             if (!user) {
                 res.status(404).json({ error: 'User not found' });
