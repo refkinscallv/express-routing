@@ -171,10 +171,14 @@ class Routes {
             ...middlewares.map(mw => this.normalizeMiddleware(mw)),
         ]
 
-        callback()
-
-        this.prefix = previousPrefix
-        this.groupMiddlewares = previousMiddlewares
+        try {
+            callback()
+        } finally {
+            // Always restore — even if the callback throws — so a definition-time
+            // error does not corrupt the prefix/middlewares for subsequent routes.
+            this.prefix = previousPrefix
+            this.groupMiddlewares = previousMiddlewares
+        }
     }
 
     /**
@@ -202,59 +206,50 @@ class Routes {
             // Scoped mode: accepts both plain functions and handle() classes
             const normalized = middlewares.map(mw => this.normalizeMiddleware(mw))
             this.globalMiddlewares = [...prevMiddlewares, ...normalized]
-            callback()
-            this.globalMiddlewares = prevMiddlewares
+            try {
+                callback()
+            } finally {
+                this.globalMiddlewares = prevMiddlewares
+            }
             return this
         }
 
-        // Chaining mode: STRICT — only handle() classes/objects allowed
+        // Chaining mode: STRICT — only handle() classes/objects allowed.
+        // Validate eagerly so a bad middleware throws immediately, but DO NOT mutate
+        // globalMiddlewares here — that mutation is scoped to each terminal call below.
+        // (Otherwise `Routes.middleware([Mw])` with no terminal call would leak the
+        // middleware into every later route.)
         const normalized = middlewares.map(mw => this.normalizeMiddlewareStrict(mw))
-        this.globalMiddlewares = [...prevMiddlewares, ...normalized]
 
         const self = this
 
         /**
-         * Restore globalMiddlewares to state before chaining, then call the target method.
+         * Apply the chained middlewares only for the duration of `action`, then restore.
          */
-        const restore = () => { self.globalMiddlewares = prevMiddlewares }
+        const withChained = (action) => {
+            const prev = self.globalMiddlewares
+            self.globalMiddlewares = [...prev, ...normalized]
+            try {
+                action()
+            } finally {
+                self.globalMiddlewares = prev
+            }
+        }
 
         return {
             group(prefix, groupCallback, groupMiddlewares = []) {
-                self.group(prefix, groupCallback, groupMiddlewares)
-                restore()
+                withChained(() => self.group(prefix, groupCallback, groupMiddlewares))
             },
             add(methods, path, handler, mws = []) {
-                self.add(methods, path, handler, mws)
-                restore()
+                withChained(() => self.add(methods, path, handler, mws))
             },
-            get(path, handler, mws = []) {
-                self.add('get', path, handler, mws)
-                restore()
-            },
-            post(path, handler, mws = []) {
-                self.add('post', path, handler, mws)
-                restore()
-            },
-            put(path, handler, mws = []) {
-                self.add('put', path, handler, mws)
-                restore()
-            },
-            delete(path, handler, mws = []) {
-                self.add('delete', path, handler, mws)
-                restore()
-            },
-            patch(path, handler, mws = []) {
-                self.add('patch', path, handler, mws)
-                restore()
-            },
-            options(path, handler, mws = []) {
-                self.add('options', path, handler, mws)
-                restore()
-            },
-            head(path, handler, mws = []) {
-                self.add('head', path, handler, mws)
-                restore()
-            },
+            get(path, handler, mws = [])     { withChained(() => self.add('get',     path, handler, mws)) },
+            post(path, handler, mws = [])    { withChained(() => self.add('post',    path, handler, mws)) },
+            put(path, handler, mws = [])     { withChained(() => self.add('put',     path, handler, mws)) },
+            delete(path, handler, mws = [])  { withChained(() => self.add('delete',  path, handler, mws)) },
+            patch(path, handler, mws = [])   { withChained(() => self.add('patch',   path, handler, mws)) },
+            options(path, handler, mws = []) { withChained(() => self.add('options', path, handler, mws)) },
+            head(path, handler, mws = [])    { withChained(() => self.add('head',    path, handler, mws)) },
         }
     }
 
@@ -323,6 +318,14 @@ class Routes {
 
         let methods = []
 
+        // For class controllers, instance methods share a SINGLE instance so the
+        // constructor runs once and `this` state is shared across all routes.
+        let sharedInstance = null
+        const getInstance = () => {
+            if (!sharedInstance) sharedInstance = new Controller()
+            return sharedInstance
+        }
+
         if (typeof Controller === 'function') {
             const staticMethods = Object.getOwnPropertyNames(Controller).filter(
                 n => typeof Controller[n] === 'function' && !['length', 'name', 'prototype'].includes(n)
@@ -368,7 +371,19 @@ class Routes {
                     : [methodMiddlewares[methodName]])
                 : []
 
-            const handler = this.resolveHandler(Controller, methodName)
+            // Resolve handler — static methods bind to the class, instance methods
+            // bind to the single shared instance (see getInstance above).
+            let handler
+            if (typeof Controller === 'function') {
+                if (typeof Controller[methodName] === 'function') {
+                    handler = Controller[methodName].bind(Controller)
+                } else {
+                    const instance = getInstance()
+                    handler = instance[methodName].bind(instance)
+                }
+            } else {
+                handler = Controller[methodName].bind(Controller)
+            }
 
             this.routes.push({
                 methods: [httpMethod],
@@ -393,7 +408,9 @@ class Routes {
             methods: route.methods,
             path: route.path,
             middlewareCount: route.middlewares.length,
-            handlerType: typeof route.handler === 'function' ? 'function' : 'controller',
+            // Controller-resolved routes (_resolved) and [Controller, 'method'] tuples
+            // report 'controller'; only inline function handlers report 'function'.
+            handlerType: (typeof route.handler === 'function' && !route._resolved) ? 'function' : 'controller',
         }))
     }
 

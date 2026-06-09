@@ -466,4 +466,73 @@ describe('Express Routing - CommonJS', () => {
         test('sample_path → sample-path', () => expect(Routes.nameToPath('sample_path')).toBe('sample-path'));
         test('Samplepath → samplepath',   () => expect(Routes.nameToPath('Samplepath')).toBe('samplepath'));
     });
+
+    // ─── Regression: state isolation & instance reuse ──────────────────────────
+
+    describe('Regression', () => {
+        test('group() restores prefix even if the callback throws', () => {
+            expect(() => {
+                Routes.group('/api', () => { throw new Error('boom'); });
+            }).toThrow('boom');
+            // prefix must be restored so the next route is NOT nested under /api
+            Routes.get('/after', ({ res }) => res.end());
+            expect(Routes.routes[0].path).toBe('/after');
+            expect(Routes.prefix).toBe('');
+        });
+
+        test('scoped middleware() restores globals even if the callback throws', () => {
+            class Mw { static handle({ next }) { next(); } }
+            expect(() => {
+                Routes.middleware([Mw], () => { throw new Error('boom'); });
+            }).toThrow('boom');
+            Routes.get('/plain', ({ res }) => res.end());
+            expect(Routes.routes[0].middlewares).toHaveLength(0);
+            expect(Routes.globalMiddlewares).toHaveLength(0);
+        });
+
+        test('chaining middleware() with no terminal call does not leak globals', () => {
+            class Mw { static handle({ next }) { next(); } }
+            // No .get()/.group() after — must NOT mutate global middleware
+            Routes.middleware([Mw]);
+            Routes.get('/unrelated', ({ res }) => res.end());
+            expect(Routes.globalMiddlewares).toHaveLength(0);
+            expect(Routes.routes[0].middlewares).toHaveLength(0);
+        });
+
+        test('chaining middleware().get() applies middleware only to that route', async () => {
+            const calls = [];
+            class Mw { static handle({ next }) { calls.push('mw'); next(); } }
+            Routes.middleware([Mw]).get('/guarded', ({ res }) => res.json({ ok: true }));
+            Routes.get('/open', ({ res }) => res.json({ ok: true }));
+            await setupApp();
+            await request(app).get('/guarded');
+            await request(app).get('/open');
+            expect(calls).toEqual(['mw']); // ran once, only for /guarded
+        });
+
+        test('instance controller shares a single instance across methods', async () => {
+            const ctorCalls = { n: 0 };
+            class CounterController {
+                constructor() { ctorCalls.n++; this.hits = 0; }
+                first({ res }) { this.hits++; res.json({ hits: this.hits }); }
+                second({ res }) { this.hits++; res.json({ hits: this.hits }); }
+            }
+            Routes.controller('counter', CounterController);
+            await setupApp();
+            expect(ctorCalls.n).toBe(1); // constructed once, not once-per-method
+            await request(app).get('/counter/first');
+            const res = await request(app).get('/counter/second');
+            expect(res.body.hits).toBe(2); // shared `this.hits` across routes
+        });
+
+        test('allRoutes() reports controller routes as "controller"', () => {
+            class C { static index({ res }) { res.end(); } }
+            Routes.controller('c', C);
+            Routes.get('/fn', ({ res }) => res.end());
+            Routes.get('/tuple', [C, 'index']);
+            expect(Routes.allRoutes().map(r => r.handlerType)).toEqual([
+                'controller', 'function', 'controller',
+            ]);
+        });
+    });
 });

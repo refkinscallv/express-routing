@@ -34,6 +34,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `req.params.id` now widens to `string | string[]`; the example casts to `string` before `parseInt`,
   so `npm run build` (and therefore `prepublishOnly`) passes again.
 
+- **State corruption when a `group()` / scoped `middleware()` callback throws.**
+  The `prefix` and `groupMiddlewares` / `globalMiddlewares` were left mutated, so every
+  route defined *after* a definition-time error was silently registered under the wrong
+  prefix or with stray middleware. Both are now restored via `try/finally`.
+
+- **Chaining `Routes.middleware([Mw])` with no terminal call leaked middleware.**
+  Calling `Routes.middleware([Mw])` without a following `.get()` / `.group()` permanently
+  pushed the middleware into `globalMiddlewares`, so unrelated later routes wrongly received
+  it. The chained middleware is now scoped to each terminal call only.
+
+- **Instance controllers created a new instance per method.**
+  `Routes.controller('x', MyClass)` ran the constructor once *per route method* and bound each
+  method to a different instance, breaking shared `this` state and multiplying constructor
+  side effects. A class controller is now instantiated **once** and shared across its routes.
+
+- **`allRoutes()` mislabeled controller routes.**
+  Controller-resolved routes now report `handlerType: 'controller'` (previously `'function'`).
+
 ### 🔧 Improvements
 
 - Added dedicated, condition-specific type declarations:
