@@ -369,6 +369,10 @@ class Routes {
             throw new Error('Routes.controller: invalid Controller — must be a class, instance, or plain object')
         }
 
+        // Private/helper methods — any name starting with "_" (e.g. `_method1`) is
+        // treated as internal and is NEVER exposed as a route.
+        methods = methods.filter(name => !name.startsWith('_'))
+
         for (const methodName of methods) {
             let httpMethod = 'get'
             let pathSegment = methodName

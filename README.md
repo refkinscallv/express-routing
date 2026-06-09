@@ -14,6 +14,7 @@ Laravel-style routing system for Express.js — with full support for **CommonJS
 - ✅ Strict Chaining: `Routes.middleware([Mw]).get(...)` or `.group(...)`
 - ✅ `Routes.apply(app, router)` — auto mounts router
 - ✅ `Routes.controller()` — auto-register all methods with optional per-method middlewares
+- ✅ Private controller methods — `_`-prefixed methods are skipped, never routed
 - ✅ `Routes.errorHandler()` — global typed error handler
 - ✅ `Routes.maintenance()` — toggle maintenance mode
 - ✅ `HttpContext` with `{ req, res, next, error }` in all handlers
@@ -153,6 +154,7 @@ class UserController {
     static index({ res }) { res.json({ users: [] }) }      // GET /users
     static myProfile({ res }) { res.json({}) }             // GET /users/my-profile
     static post_create({ req, res }) { res.json({}) }      // POST /users/create
+    static _helper() { /* ... */ }                         // ignored — not routed
 }
 
 // Controller with optional per-method middlewares
@@ -161,6 +163,10 @@ Routes.controller('users', UserController, {
     'post_create': [AuthMiddleware, AdminMiddleware]
 })
 ```
+
+> **Private methods:** any method whose name starts with `_` (e.g. `_helper`) is treated as an
+> internal helper and is **never** exposed as a route — handy for shared logic the public
+> controller methods call.
 
 ### `[Controller, 'method']` — explicit binding
 

@@ -152,6 +152,9 @@ export default class Routes {
     /**
      * Auto-register all methods of a controller as routes.
      *
+     * Methods whose name starts with `_` (e.g. `_helper`) are treated as private
+     * helpers and are NEVER registered as routes.
+     *
      * @param basePath  Base URL for the controller
      * @param Controller  Class (static or instance) or plain object
      * @param methodMiddlewares  Optional per-method middleware map:

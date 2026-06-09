@@ -555,6 +555,34 @@ describe('Express Routing - CommonJS', () => {
             expect(calls).toEqual(['auth']);
         });
 
+        test('controller() ignores private "_"-prefixed methods', async () => {
+            class UserController {
+                static index({ res }) { res.json({ users: [] }); }       // GET /users
+                static profile({ res }) { res.json({ ok: true }); }      // GET /users/profile
+                static _helper() { return 'internal'; }                  // ignored
+                _build() { return 42; }                                  // ignored
+            }
+            Routes.controller('users', UserController);
+            const paths = Routes.allRoutes().map(r => r.path);
+            expect(paths).toEqual(['/users', '/users/profile']);
+            expect(paths).not.toContain('/users/helper');
+            expect(paths).not.toContain('/users/build');
+
+            await setupApp();
+            // private methods are not reachable
+            expect((await request(app).get('/users/helper')).status).toBe(404);
+            expect((await request(app).get('/users/profile')).status).toBe(200);
+        });
+
+        test('controller() ignores "_"-prefixed keys on plain-object controllers', () => {
+            const ApiController = {
+                index({ res }) { res.end(); },
+                _secret() { return 'nope'; },
+            };
+            Routes.controller('api', ApiController);
+            expect(Routes.allRoutes().map(r => r.path)).toEqual(['/api']);
+        });
+
         test('allRoutes() reports controller routes as "controller"', () => {
             class C { static index({ res }) { res.end(); } }
             Routes.controller('c', C);

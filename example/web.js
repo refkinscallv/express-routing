@@ -53,8 +53,13 @@ class HomeController {
             status: true,
             code: 201,
             message: 'Home - POST create',
-            body: req.body,
+            body: this._method1(req.body),
         });
+    }
+
+    // Private helper — name starts with "_", so it is NEVER exposed as a route.
+    static _method1(payload) {
+        return { received: payload, normalizedAt: new Date().toISOString() };
     }
 }
 

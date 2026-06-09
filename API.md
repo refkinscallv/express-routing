@@ -227,6 +227,30 @@ Auto-register all methods of a controller as routes.
 | `post_create` | POST | `/<basePath>/create` |
 | `put_update` | PUT | `/<basePath>/update` |
 | `delete_remove` | DELETE | `/<basePath>/remove` |
+| `_anything` | — | **ignored** (private/helper method) |
+
+### Private Methods
+
+Any method whose name starts with an underscore (`_`) is treated as **internal** and is
+**never** registered as a route — use it for shared helpers, validation, or formatting that
+the controller's public methods call.
+
+```js
+class UserController {
+    static index({ res }) { res.json(this._serialize([])) }  // GET /users
+    static post_create({ req, res }) {                       // POST /users/create
+        if (!this._isValid(req.body)) return res.status(422).end()
+        res.status(201).json(req.body)
+    }
+
+    // Helpers below are NOT routed:
+    static _serialize(users) { return { users } }
+    static _isValid(body) { return Boolean(body && body.name) }
+}
+
+Routes.controller('users', UserController)
+// Registered: GET /users, POST /users/create  (no /users/serialize, /users/is-valid)
+```
 
 ### Controller Formats
 

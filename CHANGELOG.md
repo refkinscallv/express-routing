@@ -66,6 +66,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   (`@refkinscallv/express-routing`), matching real-world usage, and all three
   (`example`, `example:esm`, `example:ts`) boot and serve requests correctly under Express 5.
 
+### ✨ New Features
+
+- **Private controller methods.** Any method whose name starts with `_` (e.g. `_helper`,
+  `_method1`) is now treated as internal and is **never** registered as a route — across
+  static-class, instance-class, and plain-object controllers. Use them for shared helpers,
+  validation, or formatting that the public controller methods call.
+
+  ```js
+  class UserController {
+      static index({ res }) { res.json(this._serialize([])) }  // GET /users
+      static _serialize(users) { return { users } }            // ignored — not routed
+  }
+  ```
+
 ### 🔧 Improvements
 
 - Added dedicated, condition-specific type declarations:
