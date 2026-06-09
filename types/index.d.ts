@@ -11,8 +11,12 @@ export interface HttpContext {
     error: Error | null;
 }
 
-/** Route handler function — receives the full HttpContext */
-export type RouteHandler = (ctx: HttpContext) => void | Promise<void>;
+/**
+ * Route handler function — receives the full HttpContext.
+ * The return value is ignored, so handlers may freely `return res.json(...)`
+ * or be `async`. (Typed as `any` to allow the common `({ res }) => res.json(...)` form.)
+ */
+export type RouteHandler = (ctx: HttpContext) => any;
 
 /** Controller method reference tuple */
 export type ControllerHandler = [any, string];
@@ -21,7 +25,8 @@ export type ControllerHandler = [any, string];
 export type Handler = RouteHandler | ControllerHandler;
 
 /**
- * Middleware — plain Express function OR object/class with handle()
+ * Middleware — plain Express function, object/class with handle(), OR a registered
+ * alias/group name (string, see Routes.registerMiddleware / Routes.middlewareGroup).
  *
  * PLAIN FUNCTION — allowed in scoped Routes.middleware([fn], () => { ... }) and per-route:
  *   (req, res, next) => void
@@ -30,6 +35,8 @@ export type Handler = RouteHandler | ControllerHandler;
  *   class Mw { static handle({ req, res, next, error }: HttpContext): void }
  *   class Mw { handle({ req, res, next, error }: HttpContext): void }
  *   const obj = { handle({ req, res, next, error }: HttpContext): void }
+ *
+ * STRING — a registered middleware alias or group: 'auth', 'web', ...
  */
 export type MiddlewareFn = (req: Request, res: Response, next: NextFunction) => void | Promise<void>;
 
@@ -37,17 +44,57 @@ export interface MiddlewareClass {
     handle(ctx: HttpContext): void | Promise<void>;
 }
 
-export type Middleware = MiddlewareFn | MiddlewareClass | (new () => MiddlewareClass);
+export type Middleware = MiddlewareFn | MiddlewareClass | (new () => MiddlewareClass) | string;
 
 /** HTTP methods supported by the router */
 export type HttpMethod = 'get' | 'post' | 'put' | 'delete' | 'patch' | 'options' | 'head';
+
+/** Parameter constraint — a regex source string or a RegExp. */
+export type RouteConstraint = string | RegExp;
 
 /** Route information object returned by allRoutes() */
 export interface RouteInfo {
     methods: HttpMethod[];
     path: string;
+    /** Route name (Routes...name()), or null if unnamed */
+    name: string | null;
     middlewareCount: number;
     handlerType: 'function' | 'controller';
+}
+
+/** The seven RESTful resource actions. */
+export type ResourceAction = 'index' | 'create' | 'store' | 'show' | 'edit' | 'update' | 'destroy';
+
+/** Options for Routes.resource() / Routes.apiResource(). */
+export interface ResourceOptions {
+    /** Only register these actions. */
+    only?: ResourceAction[];
+    /** Register all actions except these. */
+    except?: ResourceAction[];
+    /** Path parameter name for show/update/destroy/edit (default: 'id'). */
+    parameter?: string;
+    /** When true, omit the HTML-form `create` and `edit` routes. */
+    api?: boolean;
+    /** Middleware applied to every generated resource route. */
+    middleware?: Middleware | Middleware[];
+}
+
+/**
+ * Chainable handle returned by route-definition methods, enabling Laravel-style
+ * fluent configuration:
+ *   Routes.get('/users/:id', h).name('users.show').whereNumber('id')
+ */
+export interface RouteRegistration {
+    /** Assign a route name for URL generation via Routes.url() / Routes.route(). */
+    name(name: string): RouteRegistration;
+    /** Constrain a path parameter to a pattern (regex string or RegExp). */
+    where(param: string, pattern: RouteConstraint): RouteRegistration;
+    /** Constrain several path parameters at once. */
+    where(constraints: Record<string, RouteConstraint>): RouteRegistration;
+    whereNumber(param: string): RouteRegistration;
+    whereAlpha(param: string): RouteRegistration;
+    whereAlphaNumeric(param: string): RouteRegistration;
+    whereUuid(param: string): RouteRegistration;
 }
 
 /**
@@ -60,24 +107,23 @@ export type MethodMiddlewareMap = Record<string, Middleware | Middleware[]>;
 /**
  * Proxy returned by Routes.middleware() when called WITHOUT a callback (chaining mode).
  *
- * STRICT: only handle()-based middleware classes/objects are allowed.
- * Each method call is terminal — globalMiddlewares are restored after.
+ * STRICT: only handle()-based middleware classes/objects (or aliases that resolve to one)
+ * are allowed. Each method call is terminal — globalMiddlewares are restored after.
  *
  * Usage:
- *   Routes.middleware([Mw]).get(path, handler)
- *   Routes.middleware([Mw]).post(path, handler)
+ *   Routes.middleware([Mw]).get(path, handler).name('...')
  *   Routes.middleware([Mw]).group(prefix, callback)
  */
 export interface MiddlewareChain {
     group(prefix: string, callback: () => void, middlewares?: Middleware[]): void;
-    add(methods: HttpMethod | HttpMethod[], path: string, handler: Handler, middlewares?: Middleware[]): void;
-    get(path: string, handler: Handler, middlewares?: Middleware[]): void;
-    post(path: string, handler: Handler, middlewares?: Middleware[]): void;
-    put(path: string, handler: Handler, middlewares?: Middleware[]): void;
-    delete(path: string, handler: Handler, middlewares?: Middleware[]): void;
-    patch(path: string, handler: Handler, middlewares?: Middleware[]): void;
-    options(path: string, handler: Handler, middlewares?: Middleware[]): void;
-    head(path: string, handler: Handler, middlewares?: Middleware[]): void;
+    add(methods: HttpMethod | HttpMethod[], path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+    get(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+    post(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+    put(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+    delete(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+    patch(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+    options(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+    head(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
 }
 
 export default class Routes {
@@ -86,14 +132,19 @@ export default class Routes {
         path: string;
         handler: Handler;
         middlewares: Middleware[];
+        name?: string | null;
+        constraints?: Record<string, RouteConstraint>;
         _resolved?: boolean;
     }>;
     static prefix: string;
     static groupMiddlewares: Middleware[];
     static globalMiddlewares: Middleware[];
+    static middlewareAliases: Record<string, Middleware>;
+    static middlewareGroups: Record<string, Middleware[]>;
     static _errorHandler: RouteHandler | null;
     static _maintenanceMode: boolean;
     static _maintenanceHandler: RouteHandler | null;
+    static _fallbackHandler: RouteHandler | null;
 
     static normalizePath(path: string): string;
 
@@ -120,14 +171,24 @@ export default class Routes {
      */
     static normalizeMiddlewareStrict(mw: Middleware): MiddlewareFn;
 
-    static add(methods: HttpMethod | HttpMethod[], path: string, handler: Handler, middlewares?: Middleware[]): void;
-    static get(path: string, handler: Handler, middlewares?: Middleware[]): void;
-    static post(path: string, handler: Handler, middlewares?: Middleware[]): void;
-    static put(path: string, handler: Handler, middlewares?: Middleware[]): void;
-    static delete(path: string, handler: Handler, middlewares?: Middleware[]): void;
-    static patch(path: string, handler: Handler, middlewares?: Middleware[]): void;
-    static options(path: string, handler: Handler, middlewares?: Middleware[]): void;
-    static head(path: string, handler: Handler, middlewares?: Middleware[]): void;
+    /** Register named middleware aliases (Laravel-style). */
+    static registerMiddleware(name: string, mw: Middleware): typeof Routes;
+    static registerMiddleware(map: Record<string, Middleware>): typeof Routes;
+
+    /** Register a named middleware group — a string that expands to several middlewares. */
+    static middlewareGroup(name: string, list: Middleware[]): typeof Routes;
+
+    /** Expand a middleware list, resolving string aliases/groups to actual middleware. */
+    static expandMiddleware(list: Middleware[]): Middleware[];
+
+    static add(methods: HttpMethod | HttpMethod[], path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+    static get(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+    static post(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+    static put(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+    static delete(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+    static patch(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+    static options(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+    static head(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
     static group(prefix: string, callback: () => void, middlewares?: Middleware[]): void;
 
     /**
@@ -139,7 +200,6 @@ export default class Routes {
      *
      * CHAINING (without callback) — STRICT: only handle() classes/objects:
      *   Routes.middleware([Mw]).get(path, handler)
-     *   Routes.middleware([Mw]).post(path, handler)
      *   Routes.middleware([Mw]).group(prefix, callback)
      *   Returns MiddlewareChain — each call is terminal.
      */
@@ -164,6 +224,41 @@ export default class Routes {
      *   }
      */
     static controller(basePath: string, Controller: any, methodMiddlewares?: MethodMiddlewareMap): void;
+
+    /**
+     * Register the seven RESTful resource routes for a controller (Laravel-style):
+     *   GET index · GET create · POST store · GET show · GET edit · PUT|PATCH update · DELETE destroy
+     * Each is named `<name>.<action>`. Only actions the controller implements are registered.
+     */
+    static resource(name: string, Controller: any, options?: ResourceOptions): typeof Routes;
+
+    /** API resource — resource() without the HTML-form create/edit routes. */
+    static apiResource(name: string, Controller: any, options?: ResourceOptions): typeof Routes;
+
+    /**
+     * Build a resolver binding a controller method to the class, a single shared
+     * instance, or the object — returning null when the method does not exist.
+     */
+    static makeMethodResolver(Controller: any): (method: string) => RouteHandler | null;
+
+    /** Register a redirect route (default status 302). */
+    static redirect(from: string, to: string, status?: number): RouteRegistration;
+
+    /** Register a route that renders a view via the Express view engine (res.render). */
+    static view(path: string, view: string, data?: Record<string, any>): RouteRegistration;
+
+    /** Register a fallback handler invoked when no other route matches. */
+    static fallback(handler: Handler): typeof Routes;
+
+    /**
+     * Generate a URL for a named route, substituting `:param` segments and appending
+     * any extra keys as a query string.
+     *   Routes.url('users.show', { id: 5 })    // → /users/5
+     */
+    static url(name: string, params?: Record<string, any>): string;
+
+    /** Alias of Routes.url() — matches Laravel's `route()` helper. */
+    static route(name: string, params?: Record<string, any>): string;
 
     static allRoutes(): RouteInfo[];
 

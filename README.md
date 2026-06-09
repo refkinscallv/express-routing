@@ -15,6 +15,11 @@ Laravel-style routing system for Express.js — with full support for **CommonJS
 - ✅ `Routes.apply(app, router)` — auto mounts router
 - ✅ `Routes.controller()` — auto-register all methods with optional per-method middlewares
 - ✅ Private controller methods — `_`-prefixed methods are skipped, never routed
+- ✅ **Named routes + URL generation** — `.name('users.show')` then `Routes.url('users.show', { id })`
+- ✅ **Resource routes** — `Routes.resource()` / `Routes.apiResource()` (RESTful, auto-named)
+- ✅ **Named middleware** — `Routes.registerMiddleware('auth', Mw)` + middleware groups
+- ✅ **Parameter constraints** — `.whereNumber('id')`, `.where('id', '[0-9]+')`
+- ✅ **`redirect()`, `view()`, `fallback()`** routes
 - ✅ `Routes.errorHandler()` — global typed error handler
 - ✅ `Routes.maintenance()` — toggle maintenance mode
 - ✅ `HttpContext` with `{ req, res, next, error }` in all handlers
@@ -176,6 +181,90 @@ class UserController {
 }
 
 Routes.get('/users', [UserController, 'index'])
+```
+
+---
+
+## Resource Routes
+
+Register the seven RESTful routes for a controller in one call — Laravel-style.
+
+```js
+class PhotoController {
+    static index({ res })   { /* GET    /photos          */ }
+    static create({ res })  { /* GET    /photos/create   */ }
+    static store({ res })   { /* POST   /photos          */ }
+    static show({ res })    { /* GET    /photos/:id      */ }
+    static edit({ res })    { /* GET    /photos/:id/edit */ }
+    static update({ res })  { /* PUT|PATCH /photos/:id   */ }
+    static destroy({ res }) { /* DELETE /photos/:id      */ }
+}
+
+Routes.resource('photos', PhotoController)
+Routes.apiResource('posts', PostController)                         // omits create & edit
+Routes.resource('books', BookController, { only: ['index', 'show'] })
+Routes.resource('tags', TagController, { except: ['destroy'], parameter: 'tag' })
+```
+
+Each route is auto-named `<name>.<action>` (e.g. `photos.show`). Only the actions your
+controller actually implements are registered.
+
+---
+
+## Named Routes & URL Generation
+
+```js
+Routes.get('/users/:id', handler).name('users.show')
+
+Routes.url('users.show', { id: 5 })            // → '/users/5'
+Routes.route('users.show', { id: 5, ref: 'a' }) // → '/users/5?ref=a'  (alias of url())
+```
+
+Extra params become a query string; a missing required param throws.
+
+---
+
+## Named Middleware
+
+```js
+Routes.registerMiddleware('auth', AuthMiddleware)
+Routes.registerMiddleware({ guest: GuestMiddleware, admin: AdminMiddleware })
+
+// Group several middlewares under one name (members may be aliases or classes)
+Routes.middlewareGroup('web', ['auth', LogMiddleware])
+
+// Use by string — scoped or chained
+Routes.middleware(['auth']).get('/me', handler)
+Routes.middleware(['web'], () => {
+    Routes.get('/dashboard', handler)
+})
+```
+
+---
+
+## Parameter Constraints
+
+```js
+Routes.get('/item/:id', handler).whereNumber('id')   // matches only digits
+Routes.get('/item/:slug', handler)                   // '/item/abc' falls through to here
+
+Routes.get('/code/:c', handler).where('c', '[A-Z]{3}')
+// helpers: whereNumber, whereAlpha, whereAlphaNumeric, whereUuid
+```
+
+A request whose parameter does not match is skipped (`next('route')`), so a later route can match.
+
+---
+
+## Redirect, View & Fallback
+
+```js
+Routes.redirect('/old', '/new')        // 302
+Routes.redirect('/legacy', '/home', 301)
+
+Routes.view('/about', 'about', { title: 'About Us' })   // res.render via your view engine
+
+Routes.fallback(({ res }) => res.status(404).json({ error: 'Not Found' }))
 ```
 
 ---

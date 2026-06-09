@@ -147,7 +147,7 @@ Routes.middleware([LogMiddleware])
 // 4. Nested groups with middleware
 Routes.group('api', () => {
     Routes.get('status', ({ res }) => {
-        res.status(200).json({ status: 'ok', version: '3.1.0' });
+        res.status(200).json({ status: 'ok', version: '3.2.0' });
     });
 
     Routes.group('v1', () => {
@@ -170,7 +170,32 @@ Routes.get('routes-info', ({ res }) => {
     res.json({ total: Routes.allRoutes().length, routes: Routes.allRoutes() });
 });
 
-// 8. Register a global Routes-level error handler
+// ─── v3.2.0 — Laravel-style features ────────────────────────────────────────────
+
+// 8. Named middleware alias + group
+Routes.registerMiddleware('auth', Middleware);          // use ?id=12345678 to pass
+Routes.middlewareGroup('web', ['auth', LogMiddleware]);
+
+// 9. Named route + URL generation (whereNumber constrains :id to digits)
+Routes.get('articles/:id', ({ req, res }) => {
+    res.json({ id: req.params.id, self: Routes.url('articles.show', { id: req.params.id }) });
+}).name('articles.show').whereNumber('id');
+
+// 10. Resource routes (RESTful, auto-named photos.index/show/store/update/destroy)
+const PhotoController = {
+    index({ res }) { res.json({ photos: [], link: Routes.url('photos.index') }); },
+    show({ req, res }) { res.json({ id: req.params.id }); },
+    store({ res }) { res.status(201).json({ created: true }); },
+    update({ res }) { res.json({ updated: true }); },
+    destroy({ res }) { res.json({ deleted: true }); },
+};
+Routes.apiResource('photos', PhotoController);
+
+// 11. Redirect + fallback
+Routes.redirect('legacy-home', '/home', 301);
+Routes.fallback(({ res }) => res.status(404).json({ status: false, code: 404, message: 'Not Found' }));
+
+// 12. Register a global Routes-level error handler
 Routes.errorHandler([ErrorController, 'handle']);
 
 module.exports = Routes;

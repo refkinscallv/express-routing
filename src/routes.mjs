@@ -3,7 +3,7 @@
  * @description Laravel-style routing system for Express.js with support for CommonJS, ESM, and TypeScript
  * @author Refkinscallv
  * @repository https://github.com/refkinscallv/express-routing
- * @version 3.1.0
+ * @version 3.2.0
  * @date 2026
  */
 
@@ -15,6 +15,48 @@ export default class Routes {
     static _errorHandler = null
     static _maintenanceMode = false
     static _maintenanceHandler = null
+    static _fallbackHandler = null
+    static middlewareAliases = {}
+    static middlewareGroups = {}
+
+    /**
+     * Register named middleware aliases (Laravel-style).
+     *   Routes.registerMiddleware('auth', AuthMiddleware)
+     *   Routes.registerMiddleware({ auth: AuthMiddleware, guest: GuestMiddleware })
+     */
+    static registerMiddleware(name, mw) {
+        if (name && typeof name === 'object') {
+            for (const key of Object.keys(name)) this.middlewareAliases[key] = name[key]
+            return this
+        }
+        this.middlewareAliases[name] = mw
+        return this
+    }
+
+    /** Register a named middleware group — a string that expands to several middlewares. */
+    static middlewareGroup(name, list) {
+        this.middlewareGroups[name] = Array.isArray(list) ? list : [list]
+        return this
+    }
+
+    /** Expand a middleware list, resolving string entries to their alias/group. */
+    static expandMiddleware(list) {
+        const out = []
+        for (const mw of list) {
+            if (typeof mw === 'string') {
+                if (Object.prototype.hasOwnProperty.call(this.middlewareGroups, mw)) {
+                    out.push(...this.expandMiddleware(this.middlewareGroups[mw]))
+                } else if (Object.prototype.hasOwnProperty.call(this.middlewareAliases, mw)) {
+                    out.push(this.middlewareAliases[mw])
+                } else {
+                    throw new Error(`Unknown middleware "${mw}" — register it with Routes.registerMiddleware() or Routes.middlewareGroup()`)
+                }
+            } else {
+                out.push(mw)
+            }
+        }
+        return out
+    }
 
     static normalizePath(path) {
         return '/' + path.split('/').filter(Boolean).join('/')
@@ -107,7 +149,7 @@ export default class Routes {
     static add(methods, path, handler, middlewares = []) {
         const methodArray = Array.isArray(methods) ? methods : [methods]
         const fullPath = this.normalizePath(`${this.prefix}/${path}`)
-        this.routes.push({
+        const route = {
             methods: methodArray,
             path: fullPath,
             handler,
@@ -116,16 +158,40 @@ export default class Routes {
                 ...this.groupMiddlewares,
                 ...middlewares,
             ],
-        })
+            name: null,
+            constraints: {},
+        }
+        this.routes.push(route)
+        return this.registration(route)
     }
 
-    static get(path, handler, middlewares = [])     { this.add('get',     path, handler, middlewares) }
-    static post(path, handler, middlewares = [])    { this.add('post',    path, handler, middlewares) }
-    static put(path, handler, middlewares = [])     { this.add('put',     path, handler, middlewares) }
-    static delete(path, handler, middlewares = [])  { this.add('delete',  path, handler, middlewares) }
-    static patch(path, handler, middlewares = [])   { this.add('patch',   path, handler, middlewares) }
-    static options(path, handler, middlewares = []) { this.add('options', path, handler, middlewares) }
-    static head(path, handler, middlewares = [])    { this.add('head',    path, handler, middlewares) }
+    /** Chainable registration handle: Routes.get(...).name('users.show').whereNumber('id') */
+    static registration(route) {
+        const handle = {
+            name(routeName) { route.name = routeName; return handle },
+            where(param, pattern) {
+                if (param && typeof param === 'object') {
+                    Object.assign(route.constraints, param)
+                } else {
+                    route.constraints[param] = pattern
+                }
+                return handle
+            },
+            whereNumber(param)       { route.constraints[param] = '[0-9]+';           return handle },
+            whereAlpha(param)        { route.constraints[param] = '[A-Za-z]+';        return handle },
+            whereAlphaNumeric(param) { route.constraints[param] = '[A-Za-z0-9]+';     return handle },
+            whereUuid(param)         { route.constraints[param] = '[0-9a-fA-F-]{36}'; return handle },
+        }
+        return handle
+    }
+
+    static get(path, handler, middlewares = [])     { return this.add('get',     path, handler, middlewares) }
+    static post(path, handler, middlewares = [])    { return this.add('post',    path, handler, middlewares) }
+    static put(path, handler, middlewares = [])     { return this.add('put',     path, handler, middlewares) }
+    static delete(path, handler, middlewares = [])  { return this.add('delete',  path, handler, middlewares) }
+    static patch(path, handler, middlewares = [])   { return this.add('patch',   path, handler, middlewares) }
+    static options(path, handler, middlewares = []) { return this.add('options', path, handler, middlewares) }
+    static head(path, handler, middlewares = [])    { return this.add('head',    path, handler, middlewares) }
 
     static group(prefix, callback, middlewares = []) {
         const previousPrefix = this.prefix
@@ -134,7 +200,7 @@ export default class Routes {
         this.prefix = this.normalizePath(fullPrefix)
         this.groupMiddlewares = [
             ...previousMiddlewares,
-            ...middlewares.map(mw => this.normalizeMiddleware(mw)),
+            ...this.expandMiddleware(middlewares).map(mw => this.normalizeMiddleware(mw)),
         ]
         try {
             callback()
@@ -164,7 +230,7 @@ export default class Routes {
         const prevMiddlewares = this.globalMiddlewares
 
         if (typeof callback === 'function') {
-            const normalized = middlewares.map(mw => this.normalizeMiddleware(mw))
+            const normalized = this.expandMiddleware(middlewares).map(mw => this.normalizeMiddleware(mw))
             this.globalMiddlewares = [...prevMiddlewares, ...normalized]
             try {
                 callback()
@@ -178,14 +244,14 @@ export default class Routes {
         // Validate eagerly, but DO NOT mutate globalMiddlewares here; the mutation is
         // scoped to each terminal call below so a chain with no terminal call (e.g.
         // `Routes.middleware([Mw])`) can never leak into later routes.
-        const normalized = middlewares.map(mw => this.normalizeMiddlewareStrict(mw))
+        const normalized = this.expandMiddleware(middlewares).map(mw => this.normalizeMiddlewareStrict(mw))
 
         const self = this
         const withChained = (action) => {
             const prev = self.globalMiddlewares
             self.globalMiddlewares = [...prev, ...normalized]
             try {
-                action()
+                return action()
             } finally {
                 self.globalMiddlewares = prev
             }
@@ -193,18 +259,18 @@ export default class Routes {
 
         return {
             group(prefix, groupCallback, groupMiddlewares = []) {
-                withChained(() => self.group(prefix, groupCallback, groupMiddlewares))
+                return withChained(() => self.group(prefix, groupCallback, groupMiddlewares))
             },
             add(methods, path, handler, mws = []) {
-                withChained(() => self.add(methods, path, handler, mws))
+                return withChained(() => self.add(methods, path, handler, mws))
             },
-            get(path, handler, mws = [])     { withChained(() => self.add('get',     path, handler, mws)) },
-            post(path, handler, mws = [])    { withChained(() => self.add('post',    path, handler, mws)) },
-            put(path, handler, mws = [])     { withChained(() => self.add('put',     path, handler, mws)) },
-            delete(path, handler, mws = [])  { withChained(() => self.add('delete',  path, handler, mws)) },
-            patch(path, handler, mws = [])   { withChained(() => self.add('patch',   path, handler, mws)) },
-            options(path, handler, mws = []) { withChained(() => self.add('options', path, handler, mws)) },
-            head(path, handler, mws = [])    { withChained(() => self.add('head',    path, handler, mws)) },
+            get(path, handler, mws = [])     { return withChained(() => self.add('get',     path, handler, mws)) },
+            post(path, handler, mws = [])    { return withChained(() => self.add('post',    path, handler, mws)) },
+            put(path, handler, mws = [])     { return withChained(() => self.add('put',     path, handler, mws)) },
+            delete(path, handler, mws = [])  { return withChained(() => self.add('delete',  path, handler, mws)) },
+            patch(path, handler, mws = [])   { return withChained(() => self.add('patch',   path, handler, mws)) },
+            options(path, handler, mws = []) { return withChained(() => self.add('options', path, handler, mws)) },
+            head(path, handler, mws = [])    { return withChained(() => self.add('head',    path, handler, mws)) },
         }
     }
 
@@ -324,14 +390,153 @@ export default class Routes {
                     ...specificMws,
                 ],
                 _resolved: true,
+                name: null,
+                constraints: {},
             })
         }
+    }
+
+    /**
+     * Register the seven RESTful resource routes for a controller (Laravel-style).
+     * Only actions that exist on the controller are registered.
+     * @param {string} name
+     * @param {Function|Object} Controller
+     * @param {Object} [options]  { only?, except?, parameter?, api?, middleware? }
+     */
+    static resource(name, Controller, options = {}) {
+        const param = options.parameter || 'id'
+        const base = this.normalizePath(`${this.prefix}/${name}`)
+        const nameBase = name.split('/').filter(Boolean).join('.')
+        const resolve = this.makeMethodResolver(Controller)
+
+        const specMws = options.middleware
+            ? (Array.isArray(options.middleware) ? options.middleware : [options.middleware])
+            : []
+
+        const definitions = [
+            ['index',   ['get'],          base],
+            ['create',  ['get'],          `${base}/create`],
+            ['store',   ['post'],         base],
+            ['show',    ['get'],          `${base}/:${param}`],
+            ['edit',    ['get'],          `${base}/:${param}/edit`],
+            ['update',  ['put', 'patch'], `${base}/:${param}`],
+            ['destroy', ['delete'],       `${base}/:${param}`],
+        ]
+
+        let allowed = definitions.map(d => d[0])
+        if (options.api) allowed = allowed.filter(a => a !== 'create' && a !== 'edit')
+        if (Array.isArray(options.only)) allowed = allowed.filter(a => options.only.includes(a))
+        if (Array.isArray(options.except)) allowed = allowed.filter(a => !options.except.includes(a))
+
+        for (const [action, methods, routePath] of definitions) {
+            if (!allowed.includes(action)) continue
+            const handler = resolve(action)
+            if (!handler) continue
+            this.routes.push({
+                methods,
+                path: this.normalizePath(routePath),
+                handler,
+                middlewares: [
+                    ...this.globalMiddlewares,
+                    ...this.groupMiddlewares,
+                    ...specMws,
+                ],
+                _resolved: true,
+                name: `${nameBase}.${action}`,
+                constraints: {},
+            })
+        }
+        return this
+    }
+
+    /** API resource — resource() without the HTML-form create/edit routes. */
+    static apiResource(name, Controller, options = {}) {
+        return this.resource(name, Controller, { ...options, api: true })
+    }
+
+    /**
+     * Build a resolver binding a controller method to the class (static), a single
+     * shared instance (instance method), or the object — null if the method is absent.
+     */
+    static makeMethodResolver(Controller) {
+        let instance = null
+        return (methodName) => {
+            if (typeof Controller === 'function') {
+                if (typeof Controller[methodName] === 'function') {
+                    return Controller[methodName].bind(Controller)
+                }
+                const proto = Controller.prototype
+                if (proto && typeof proto[methodName] === 'function') {
+                    if (!instance) instance = new Controller()
+                    return instance[methodName].bind(instance)
+                }
+                return null
+            }
+            if (typeof Controller === 'object' && Controller !== null && typeof Controller[methodName] === 'function') {
+                return Controller[methodName].bind(Controller)
+            }
+            return null
+        }
+    }
+
+    /** Register a redirect route. Default status 302. */
+    static redirect(from, to, status = 302) {
+        return this.add('get', from, ({ res }) => res.redirect(status, to))
+    }
+
+    /** Register a route that renders a view via the Express view engine (res.render). */
+    static view(path, view, data = {}) {
+        return this.add('get', path, ({ res }) => res.render(view, data))
+    }
+
+    /** Register a fallback handler invoked when no other route matches. */
+    static fallback(handler) {
+        if (Array.isArray(handler) && handler.length === 2) {
+            const [Controller, method] = handler
+            this._fallbackHandler = this.resolveHandler(Controller, method)
+        } else if (typeof handler === 'function') {
+            this._fallbackHandler = handler
+        } else {
+            throw new Error('Routes.fallback: invalid handler — must be a function or [Controller, "method"]')
+        }
+        return this
+    }
+
+    /**
+     * Generate a URL for a named route, substituting `:param` segments and appending
+     * extra keys as a query string.
+     */
+    static url(name, params = {}) {
+        const route = this.routes.find(r => r.name === name)
+        if (!route) {
+            throw new Error(`Route name "${name}" not found`)
+        }
+        const used = new Set()
+        let path = route.path.replace(/:([A-Za-z0-9_]+)(\?)?/g, (match, key, optional) => {
+            used.add(key)
+            if (params[key] === undefined || params[key] === null) {
+                if (optional) return ''
+                throw new Error(`Missing parameter "${key}" for route "${name}"`)
+            }
+            return encodeURIComponent(params[key])
+        })
+        path = this.normalizePath(path)
+        const query = Object.keys(params)
+            .filter(key => !used.has(key) && params[key] !== undefined && params[key] !== null)
+            .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
+        return query.length ? `${path}?${query.join('&')}` : path
+    }
+
+    /** Alias of Routes.url() — matches Laravel's `route()` helper. */
+    static route(name, params = {}) {
+        return this.url(name, params)
     }
 
     static allRoutes() {
         return this.routes.map(route => ({
             methods: route.methods,
             path: route.path,
+            name: route.name || null,
             middlewareCount: route.middlewares.length,
             // Controller-resolved routes (_resolved) and [Controller, 'method'] tuples
             // report 'controller'; only inline function handlers report 'function'.
@@ -381,16 +586,32 @@ export default class Routes {
 
             if (!handlerFunction) continue
 
+            // Parameter constraints (Routes...where()) — skip with next('route') on mismatch
+            // so a later route can still match.
+            const constraintKeys = Object.keys(route.constraints || {})
+            const constraintGuard = constraintKeys.length
+                ? (req, res, next) => {
+                    for (const key of constraintKeys) {
+                        const pattern = route.constraints[key]
+                        const re = pattern instanceof RegExp ? pattern : new RegExp(`^(?:${pattern})$`)
+                        const value = req.params[key] != null ? String(req.params[key]) : ''
+                        if (!re.test(value)) return next('route')
+                    }
+                    next()
+                }
+                : null
+
             for (const method of route.methods) {
                 if (!ALLOWED_METHODS.includes(method)) {
                     throw new Error(`Invalid HTTP method "${method}" for route: ${route.path}`)
                 }
 
-                const normalizedMiddlewares = route.middlewares.map(mw => this.normalizeMiddleware(mw))
+                const normalizedMiddlewares = this.expandMiddleware(route.middlewares).map(mw => this.normalizeMiddleware(mw))
+                const chain = constraintGuard ? [constraintGuard, ...normalizedMiddlewares] : normalizedMiddlewares
 
                 target[method](
                     route.path,
-                    ...normalizedMiddlewares,
+                    ...chain,
                     async (req, res, next) => {
                         try {
                             const result = handlerFunction({ req, res, next, error: null })
@@ -401,6 +622,17 @@ export default class Routes {
                     }
                 )
             }
+        }
+
+        // Fallback — runs when no route above matched (Laravel-style).
+        if (this._fallbackHandler) {
+            const fallbackFn = this._fallbackHandler
+            target.use((req, res, next) => {
+                try {
+                    const result = fallbackFn({ req, res, next, error: null })
+                    Promise.resolve(result).catch(next)
+                } catch (err) { next(err) }
+            })
         }
 
         if (this._errorHandler) {

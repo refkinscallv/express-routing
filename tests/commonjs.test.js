@@ -14,6 +14,9 @@ describe('Express Routing - CommonJS', () => {
         Routes._errorHandler = null;
         Routes._maintenanceMode = false;
         Routes._maintenanceHandler = null;
+        Routes._fallbackHandler = null;
+        Routes.middlewareAliases = {};
+        Routes.middlewareGroups = {};
 
         app = express();
         router = express.Router();
@@ -465,6 +468,147 @@ describe('Express Routing - CommonJS', () => {
         test('SamplePath → sample-path', () => expect(Routes.nameToPath('SamplePath')).toBe('sample-path'));
         test('sample_path → sample-path', () => expect(Routes.nameToPath('sample_path')).toBe('sample-path'));
         test('Samplepath → samplepath',   () => expect(Routes.nameToPath('Samplepath')).toBe('samplepath'));
+    });
+
+    // ─── v3.2.0 — Laravel-style features ───────────────────────────────────────
+
+    describe('Named routes & url()', () => {
+        test('name() + url() substitutes params', () => {
+            Routes.get('/users/:id', ({ res }) => res.end()).name('users.show');
+            expect(Routes.url('users.show', { id: 5 })).toBe('/users/5');
+        });
+
+        test('route() is an alias of url() and appends extras as query string', () => {
+            Routes.get('/users', ({ res }) => res.end()).name('users.index');
+            expect(Routes.route('users.index', { page: 2, q: 'a b' })).toBe('/users?page=2&q=a%20b');
+        });
+
+        test('url() throws for unknown name and for a missing required param', () => {
+            Routes.get('/p/:id', ({ res }) => res.end()).name('p.show');
+            expect(() => Routes.url('nope')).toThrow(/not found/);
+            expect(() => Routes.url('p.show', {})).toThrow(/Missing parameter/);
+        });
+
+        test('allRoutes() includes the route name', () => {
+            Routes.get('/x', ({ res }) => res.end()).name('x.home');
+            expect(Routes.allRoutes()[0].name).toBe('x.home');
+        });
+    });
+
+    describe('Parameter constraints — where()', () => {
+        test('whereNumber() falls through to a later matching route', async () => {
+            Routes.get('/item/:id', ({ res }) => res.json({ type: 'num' })).whereNumber('id');
+            Routes.get('/item/:slug', ({ res }) => res.json({ type: 'slug' }));
+            await setupApp();
+            expect((await request(app).get('/item/42')).body.type).toBe('num');
+            expect((await request(app).get('/item/abc')).body.type).toBe('slug');
+        });
+
+        test('where() with a custom pattern 404s when nothing else matches', async () => {
+            Routes.get('/code/:c', ({ res }) => res.json({ ok: true })).where('c', '[A-Z]{3}');
+            await setupApp();
+            expect((await request(app).get('/code/ABC')).status).toBe(200);
+            expect((await request(app).get('/code/ab')).status).toBe(404);
+        });
+    });
+
+    describe('resource() / apiResource()', () => {
+        class PhotoController {
+            static index({ res }) { res.json({ a: 'index' }); }
+            static store({ res }) { res.status(201).json({ a: 'store' }); }
+            static show({ req, res }) { res.json({ a: 'show', id: req.params.id }); }
+            static update({ res }) { res.json({ a: 'update' }); }
+            static destroy({ res }) { res.json({ a: 'destroy' }); }
+        }
+
+        test('registers RESTful routes with conventional verbs, paths and names', async () => {
+            Routes.resource('photos', PhotoController);
+            const info = Routes.allRoutes();
+            expect(info.map(r => `${r.methods.join('|')} ${r.path}`)).toEqual([
+                'get /photos',
+                'post /photos',
+                'get /photos/:id',
+                'put|patch /photos/:id',
+                'delete /photos/:id',
+            ]);
+            expect(info.map(r => r.name)).toEqual([
+                'photos.index', 'photos.store', 'photos.show', 'photos.update', 'photos.destroy',
+            ]);
+
+            await setupApp();
+            expect((await request(app).get('/photos')).body.a).toBe('index');
+            expect((await request(app).post('/photos')).status).toBe(201);
+            expect((await request(app).patch('/photos/9')).body.a).toBe('update'); // PUT and PATCH
+            expect((await request(app).put('/photos/9')).body.a).toBe('update');
+            expect((await request(app).delete('/photos/9')).body.a).toBe('destroy');
+            expect(Routes.url('photos.show', { id: 7 })).toBe('/photos/7');
+        });
+
+        test('only / except / parameter options', () => {
+            Routes.resource('books', PhotoController, { only: ['index', 'show'], parameter: 'book' });
+            expect(Routes.allRoutes().map(r => r.path)).toEqual(['/books', '/books/:book']);
+        });
+
+        test('apiResource() omits create and edit', () => {
+            const C = {
+                index({ res }) { res.end(); },
+                create({ res }) { res.end(); },
+                edit({ res }) { res.end(); },
+                show({ res }) { res.end(); },
+            };
+            Routes.apiResource('api/posts', C);
+            expect(Routes.allRoutes().map(r => r.path)).toEqual(['/api/posts', '/api/posts/:id']);
+        });
+    });
+
+    describe('Named middleware aliases & groups', () => {
+        test('registerMiddleware() alias usable by string', async () => {
+            const calls = [];
+            class AuthMw { static handle({ next }) { calls.push('auth'); next(); } }
+            Routes.registerMiddleware('auth', AuthMw);
+            Routes.middleware(['auth']).get('/dash', ({ res }) => res.json({ ok: true }));
+            await setupApp();
+            await request(app).get('/dash');
+            expect(calls).toEqual(['auth']);
+        });
+
+        test('middlewareGroup() expands to several middlewares (and nested aliases)', async () => {
+            const calls = [];
+            class AuthMw { static handle({ next }) { calls.push('auth'); next(); } }
+            class LogMw { static handle({ next }) { calls.push('log'); next(); } }
+            Routes.registerMiddleware('auth', AuthMw);
+            Routes.middlewareGroup('web', ['auth', LogMw]);
+            Routes.middleware(['web'], () => {
+                Routes.get('/home', ({ res }) => res.json({ ok: true }));
+            });
+            await setupApp();
+            await request(app).get('/home');
+            expect(calls).toEqual(['auth', 'log']);
+        });
+
+        test('unknown alias throws', () => {
+            expect(() => Routes.middleware(['ghost'], () => {})).toThrow(/Unknown middleware/);
+        });
+    });
+
+    describe('redirect() / view() / fallback()', () => {
+        test('redirect() issues the given status and Location', async () => {
+            Routes.redirect('/old', '/new', 301);
+            await setupApp();
+            const res = await request(app).get('/old');
+            expect(res.status).toBe(301);
+            expect(res.headers.location).toBe('/new');
+        });
+
+        test('fallback() handles unmatched routes', async () => {
+            Routes.get('/exists', ({ res }) => res.json({ ok: true }));
+            Routes.fallback(({ res }) => res.status(404).json({ fallback: true }));
+            await setupApp();
+            expect((await request(app).get('/exists')).body.ok).toBe(true);
+            const miss = await request(app).get('/does-not-exist');
+            expect(miss.status).toBe(404);
+            expect(miss.body.fallback).toBe(true);
+        });
     });
 
     // ─── Regression: state isolation & instance reuse ──────────────────────────

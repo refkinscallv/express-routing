@@ -1,10 +1,11 @@
-# API Reference — @refkinscallv/express-routing v3.1.0
+# API Reference — @refkinscallv/express-routing v3.2.0
 
 ## Overview
 
 Laravel-style routing system for Express.js supporting CommonJS, ESM, and TypeScript.
 The v3 line introduces **handle()-based middleware**, **auto apply**, **chaining**, **controller auto-routing**, **errorHandler**, and **maintenance mode**.
 v3.1.0 adds **consistent imports** — the `Routes` class resolves directly (no `.default`) across all three module systems.
+v3.2.0 adds Laravel-style **named routes & URL generation**, **resource routes**, **named middleware aliases/groups**, **parameter constraints**, and **redirect/view/fallback** routes.
 
 ---
 
@@ -298,6 +299,143 @@ Routes.controller('users', UserController, middlewares)
 
 ---
 
+## Routes.resource(name, Controller, options?)
+
+Register the seven RESTful resource routes for a controller (Laravel-style). Only the
+actions the controller implements are registered.
+
+| Action | Method | Path | Route name |
+|--------|--------|------|------------|
+| `index` | GET | `/<name>` | `<name>.index` |
+| `create` | GET | `/<name>/create` | `<name>.create` |
+| `store` | POST | `/<name>` | `<name>.store` |
+| `show` | GET | `/<name>/:id` | `<name>.show` |
+| `edit` | GET | `/<name>/:id/edit` | `<name>.edit` |
+| `update` | PUT, PATCH | `/<name>/:id` | `<name>.update` |
+| `destroy` | DELETE | `/<name>/:id` | `<name>.destroy` |
+
+```js
+Routes.resource('photos', PhotoController)
+```
+
+### Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `only` | `ResourceAction[]` | Register only these actions |
+| `except` | `ResourceAction[]` | Register all actions except these |
+| `parameter` | `string` | Path parameter name (default `'id'`) → `/photos/:photo` |
+| `api` | `boolean` | Omit the HTML-form `create` and `edit` routes |
+| `middleware` | `Middleware \| Middleware[]` | Middleware applied to every resource route |
+
+```js
+Routes.resource('books', BookController, { only: ['index', 'show'], parameter: 'book' })
+Routes.resource('tags', TagController, { except: ['destroy'] })
+Routes.resource('users', UserController, { middleware: ['auth'] })
+```
+
+## Routes.apiResource(name, Controller, options?)
+
+Same as `resource()` but without the form-oriented `create` and `edit` routes — ideal for JSON APIs.
+
+```js
+Routes.apiResource('posts', PostController)
+// → index, store, show, update, destroy  (no create/edit)
+```
+
+---
+
+## Named Routes — `.name()`, `Routes.url()`, `Routes.route()`
+
+Every route-definition method (`get`, `post`, `redirect`, …) returns a chainable
+registration handle. Assign a name, then generate URLs.
+
+```js
+Routes.get('/users/:id', handler).name('users.show')
+
+Routes.url('users.show', { id: 5 })             // → '/users/5'
+Routes.route('users.show', { id: 5, tab: 'x' }) // → '/users/5?tab=x'   (route() is an alias)
+```
+
+- `:param` segments are substituted from `params`.
+- Extra keys become a URL-encoded query string.
+- A missing **required** param throws; an unknown route name throws.
+
+---
+
+## Parameter Constraints — `.where()`
+
+```js
+Routes.get('/users/:id', handler).whereNumber('id')   // matches only digits
+Routes.get('/users/:name', handler)                   // '/users/john' falls through to here
+
+Routes.get('/code/:c', handler).where('c', '[A-Z]{3}')
+Routes.get('/u/:id', handler).where({ id: '[0-9]+' }) // multiple at once
+```
+
+| Helper | Pattern |
+|--------|---------|
+| `.whereNumber(p)` | `[0-9]+` |
+| `.whereAlpha(p)` | `[A-Za-z]+` |
+| `.whereAlphaNumeric(p)` | `[A-Za-z0-9]+` |
+| `.whereUuid(p)` | `[0-9a-fA-F-]{36}` |
+| `.where(p, pattern)` | custom string or `RegExp` |
+
+A request whose parameter doesn't match is skipped with `next('route')`, allowing a later
+route to match (or fall through to a 404 / `fallback`).
+
+---
+
+## Named Middleware — `Routes.registerMiddleware()` / `Routes.middlewareGroup()`
+
+Register middleware once under a name, then reference it by string anywhere a middleware is accepted.
+
+```js
+// Single aliases
+Routes.registerMiddleware('auth', AuthMiddleware)
+Routes.registerMiddleware({ guest: GuestMiddleware, admin: AdminMiddleware })
+
+// Group — expands to several (members may be aliases or classes)
+Routes.middlewareGroup('web', ['auth', LogMiddleware])
+
+// Use the string names
+Routes.middleware(['auth']).get('/me', handler)
+Routes.middleware(['web'], () => { Routes.get('/dashboard', handler) })
+Routes.group('/admin', () => { /* ... */ }, ['admin'])
+Routes.get('/x', handler, ['auth'])             // route-level
+```
+
+An unregistered name throws at definition time.
+
+---
+
+## Routes.redirect(from, to, status?)
+
+```js
+Routes.redirect('/old', '/new')        // 302 (default)
+Routes.redirect('/legacy', '/home', 301)
+```
+
+## Routes.view(path, view, data?)
+
+Render a template via the Express view engine (`res.render`). Requires a configured view engine.
+
+```js
+app.set('view engine', 'ejs')
+Routes.view('/about', 'about', { title: 'About Us' })
+```
+
+## Routes.fallback(handler)
+
+Register a handler invoked when **no** route matches (after all routes). Handler receives `HttpContext`.
+
+```js
+Routes.fallback(({ res }) => res.status(404).json({ error: 'Not Found' }))
+Routes.fallback([NotFoundController, 'handle'])
+```
+
+---
+
 ## Routes.errorHandler(handler)
 
 Register a global error handler for all routes. Handler receives the full `HttpContext` including `error`.
@@ -352,8 +490,9 @@ const routes = Routes.allRoutes()
 |-------|------|-------------|
 | `methods` | `HttpMethod[]` | HTTP methods for the route |
 | `path` | `string` | Normalized full path |
+| `name` | `string \| null` | Route name (from `.name()`), or `null` |
 | `middlewareCount` | `number` | Number of middlewares attached |
-| `handlerType` | `'function' \| 'controller'` | `'function'` for inline handlers; `'controller'` for `Routes.controller()` routes and `[Controller, 'method']` tuples |
+| `handlerType` | `'function' \| 'controller'` | `'function'` for inline handlers; `'controller'` for `Routes.controller()` / `resource()` routes and `[Controller, 'method']` tuples |
 
 ```js
 Routes.allRoutes().forEach(r => {

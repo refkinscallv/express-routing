@@ -11,7 +11,7 @@ import { Application, Router, Request, Response, NextFunction } from 'express';
  * no `.default` access required. The `.default` property still exists at
  * runtime for backward compatibility.
  *
- * The ESM/TypeScript counterpart lives in `index.d.ts` (`export default`).
+ * The ESM/TypeScript counterpart lives in `index.d.mts` (`export default`).
  */
 
 declare namespace Routes {
@@ -26,8 +26,12 @@ declare namespace Routes {
         error: Error | null;
     }
 
-    /** Route handler function — receives the full HttpContext */
-    export type RouteHandler = (ctx: HttpContext) => void | Promise<void>;
+    /**
+     * Route handler function — receives the full HttpContext.
+     * The return value is ignored, so handlers may freely `return res.json(...)`
+     * or be `async`. (Typed as `any` to allow the common `({ res }) => res.json(...)` form.)
+     */
+    export type RouteHandler = (ctx: HttpContext) => any;
 
     /** Controller method reference tuple */
     export type ControllerHandler = [any, string];
@@ -36,7 +40,8 @@ declare namespace Routes {
     export type Handler = RouteHandler | ControllerHandler;
 
     /**
-     * Middleware — plain Express function OR object/class with handle()
+     * Middleware — plain Express function, object/class with handle(), OR a registered
+     * alias/group name (string, see Routes.registerMiddleware / Routes.middlewareGroup).
      *
      * PLAIN FUNCTION — allowed in scoped Routes.middleware([fn], () => { ... }) and per-route:
      *   (req, res, next) => void
@@ -45,6 +50,8 @@ declare namespace Routes {
      *   class Mw { static handle({ req, res, next, error }: HttpContext): void }
      *   class Mw { handle({ req, res, next, error }: HttpContext): void }
      *   const obj = { handle({ req, res, next, error }: HttpContext): void }
+     *
+     * STRING — a registered middleware alias or group: 'auth', 'web', ...
      */
     export type MiddlewareFn = (req: Request, res: Response, next: NextFunction) => void | Promise<void>;
 
@@ -52,17 +59,49 @@ declare namespace Routes {
         handle(ctx: HttpContext): void | Promise<void>;
     }
 
-    export type Middleware = MiddlewareFn | MiddlewareClass | (new () => MiddlewareClass);
+    export type Middleware = MiddlewareFn | MiddlewareClass | (new () => MiddlewareClass) | string;
 
     /** HTTP methods supported by the router */
     export type HttpMethod = 'get' | 'post' | 'put' | 'delete' | 'patch' | 'options' | 'head';
+
+    /** Parameter constraint — a regex source string or a RegExp. */
+    export type RouteConstraint = string | RegExp;
 
     /** Route information object returned by allRoutes() */
     export interface RouteInfo {
         methods: HttpMethod[];
         path: string;
+        /** Route name (Routes...name()), or null if unnamed */
+        name: string | null;
         middlewareCount: number;
         handlerType: 'function' | 'controller';
+    }
+
+    /** The seven RESTful resource actions. */
+    export type ResourceAction = 'index' | 'create' | 'store' | 'show' | 'edit' | 'update' | 'destroy';
+
+    /** Options for Routes.resource() / Routes.apiResource(). */
+    export interface ResourceOptions {
+        only?: ResourceAction[];
+        except?: ResourceAction[];
+        parameter?: string;
+        api?: boolean;
+        middleware?: Middleware | Middleware[];
+    }
+
+    /**
+     * Chainable handle returned by route-definition methods, enabling Laravel-style
+     * fluent configuration:
+     *   Routes.get('/users/:id', h).name('users.show').whereNumber('id')
+     */
+    export interface RouteRegistration {
+        name(name: string): RouteRegistration;
+        where(param: string, pattern: RouteConstraint): RouteRegistration;
+        where(constraints: Record<string, RouteConstraint>): RouteRegistration;
+        whereNumber(param: string): RouteRegistration;
+        whereAlpha(param: string): RouteRegistration;
+        whereAlphaNumeric(param: string): RouteRegistration;
+        whereUuid(param: string): RouteRegistration;
     }
 
     /**
@@ -75,24 +114,19 @@ declare namespace Routes {
     /**
      * Proxy returned by Routes.middleware() when called WITHOUT a callback (chaining mode).
      *
-     * STRICT: only handle()-based middleware classes/objects are allowed.
-     * Each method call is terminal — globalMiddlewares are restored after.
-     *
-     * Usage:
-     *   Routes.middleware([Mw]).get(path, handler)
-     *   Routes.middleware([Mw]).post(path, handler)
-     *   Routes.middleware([Mw]).group(prefix, callback)
+     * STRICT: only handle()-based middleware classes/objects (or aliases that resolve to one)
+     * are allowed. Each method call is terminal — globalMiddlewares are restored after.
      */
     export interface MiddlewareChain {
         group(prefix: string, callback: () => void, middlewares?: Middleware[]): void;
-        add(methods: HttpMethod | HttpMethod[], path: string, handler: Handler, middlewares?: Middleware[]): void;
-        get(path: string, handler: Handler, middlewares?: Middleware[]): void;
-        post(path: string, handler: Handler, middlewares?: Middleware[]): void;
-        put(path: string, handler: Handler, middlewares?: Middleware[]): void;
-        delete(path: string, handler: Handler, middlewares?: Middleware[]): void;
-        patch(path: string, handler: Handler, middlewares?: Middleware[]): void;
-        options(path: string, handler: Handler, middlewares?: Middleware[]): void;
-        head(path: string, handler: Handler, middlewares?: Middleware[]): void;
+        add(methods: HttpMethod | HttpMethod[], path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+        get(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+        post(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+        put(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+        delete(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+        patch(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+        options(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
+        head(path: string, handler: Handler, middlewares?: Middleware[]): RouteRegistration;
     }
 
     /**
@@ -108,14 +142,19 @@ declare class Routes {
         path: string;
         handler: Routes.Handler;
         middlewares: Routes.Middleware[];
+        name?: string | null;
+        constraints?: Record<string, Routes.RouteConstraint>;
         _resolved?: boolean;
     }>;
     static prefix: string;
     static groupMiddlewares: Routes.Middleware[];
     static globalMiddlewares: Routes.Middleware[];
+    static middlewareAliases: Record<string, Routes.Middleware>;
+    static middlewareGroups: Record<string, Routes.Middleware[]>;
     static _errorHandler: Routes.RouteHandler | null;
     static _maintenanceMode: boolean;
     static _maintenanceHandler: Routes.RouteHandler | null;
+    static _fallbackHandler: Routes.RouteHandler | null;
 
     static normalizePath(path: string): string;
 
@@ -142,14 +181,24 @@ declare class Routes {
      */
     static normalizeMiddlewareStrict(mw: Routes.Middleware): Routes.MiddlewareFn;
 
-    static add(methods: Routes.HttpMethod | Routes.HttpMethod[], path: string, handler: Routes.Handler, middlewares?: Routes.Middleware[]): void;
-    static get(path: string, handler: Routes.Handler, middlewares?: Routes.Middleware[]): void;
-    static post(path: string, handler: Routes.Handler, middlewares?: Routes.Middleware[]): void;
-    static put(path: string, handler: Routes.Handler, middlewares?: Routes.Middleware[]): void;
-    static delete(path: string, handler: Routes.Handler, middlewares?: Routes.Middleware[]): void;
-    static patch(path: string, handler: Routes.Handler, middlewares?: Routes.Middleware[]): void;
-    static options(path: string, handler: Routes.Handler, middlewares?: Routes.Middleware[]): void;
-    static head(path: string, handler: Routes.Handler, middlewares?: Routes.Middleware[]): void;
+    /** Register named middleware aliases (Laravel-style). */
+    static registerMiddleware(name: string, mw: Routes.Middleware): typeof Routes;
+    static registerMiddleware(map: Record<string, Routes.Middleware>): typeof Routes;
+
+    /** Register a named middleware group — a string that expands to several middlewares. */
+    static middlewareGroup(name: string, list: Routes.Middleware[]): typeof Routes;
+
+    /** Expand a middleware list, resolving string aliases/groups to actual middleware. */
+    static expandMiddleware(list: Routes.Middleware[]): Routes.Middleware[];
+
+    static add(methods: Routes.HttpMethod | Routes.HttpMethod[], path: string, handler: Routes.Handler, middlewares?: Routes.Middleware[]): Routes.RouteRegistration;
+    static get(path: string, handler: Routes.Handler, middlewares?: Routes.Middleware[]): Routes.RouteRegistration;
+    static post(path: string, handler: Routes.Handler, middlewares?: Routes.Middleware[]): Routes.RouteRegistration;
+    static put(path: string, handler: Routes.Handler, middlewares?: Routes.Middleware[]): Routes.RouteRegistration;
+    static delete(path: string, handler: Routes.Handler, middlewares?: Routes.Middleware[]): Routes.RouteRegistration;
+    static patch(path: string, handler: Routes.Handler, middlewares?: Routes.Middleware[]): Routes.RouteRegistration;
+    static options(path: string, handler: Routes.Handler, middlewares?: Routes.Middleware[]): Routes.RouteRegistration;
+    static head(path: string, handler: Routes.Handler, middlewares?: Routes.Middleware[]): Routes.RouteRegistration;
     static group(prefix: string, callback: () => void, middlewares?: Routes.Middleware[]): void;
 
     /**
@@ -161,7 +210,6 @@ declare class Routes {
      *
      * CHAINING (without callback) — STRICT: only handle() classes/objects:
      *   Routes.middleware([Mw]).get(path, handler)
-     *   Routes.middleware([Mw]).post(path, handler)
      *   Routes.middleware([Mw]).group(prefix, callback)
      *   Returns MiddlewareChain — each call is terminal.
      */
@@ -186,6 +234,39 @@ declare class Routes {
      *   }
      */
     static controller(basePath: string, Controller: any, methodMiddlewares?: Routes.MethodMiddlewareMap): void;
+
+    /**
+     * Register the seven RESTful resource routes for a controller (Laravel-style).
+     * Each is named `<name>.<action>`. Only actions the controller implements are registered.
+     */
+    static resource(name: string, Controller: any, options?: Routes.ResourceOptions): typeof Routes;
+
+    /** API resource — resource() without the HTML-form create/edit routes. */
+    static apiResource(name: string, Controller: any, options?: Routes.ResourceOptions): typeof Routes;
+
+    /**
+     * Build a resolver binding a controller method to the class, a single shared
+     * instance, or the object — returning null when the method does not exist.
+     */
+    static makeMethodResolver(Controller: any): (method: string) => Routes.RouteHandler | null;
+
+    /** Register a redirect route (default status 302). */
+    static redirect(from: string, to: string, status?: number): Routes.RouteRegistration;
+
+    /** Register a route that renders a view via the Express view engine (res.render). */
+    static view(path: string, view: string, data?: Record<string, any>): Routes.RouteRegistration;
+
+    /** Register a fallback handler invoked when no other route matches. */
+    static fallback(handler: Routes.Handler): typeof Routes;
+
+    /**
+     * Generate a URL for a named route, substituting `:param` segments and appending
+     * any extra keys as a query string.
+     */
+    static url(name: string, params?: Record<string, any>): string;
+
+    /** Alias of Routes.url() — matches Laravel's `route()` helper. */
+    static route(name: string, params?: Record<string, any>): string;
 
     static allRoutes(): Routes.RouteInfo[];
 

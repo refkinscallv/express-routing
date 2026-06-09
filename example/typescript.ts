@@ -48,7 +48,7 @@ class AuthMiddleware {
 // Scoped global middleware via handle() — new style
 Routes.middleware([LogMiddleware], () => {
     Routes.get('/', ({ res }: HttpContext): void => {
-        res.json({ message: 'TypeScript Example Server', version: '3.1.0', language: 'TypeScript' });
+        res.json({ message: 'TypeScript Example Server', version: '3.2.0', language: 'TypeScript' });
     });
 
     Routes.group('/api', () => {

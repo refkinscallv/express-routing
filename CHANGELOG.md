@@ -5,6 +5,76 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [3.2.0] - 2026-06-10
+
+A big step toward Laravel parity — all additive and backward compatible.
+
+### ✨ New Features
+
+#### Named routes + URL generation
+Route-definition methods now return a chainable registration handle:
+
+```js
+Routes.get('/users/:id', handler).name('users.show')
+Routes.url('users.show', { id: 5 })            // → '/users/5'
+Routes.route('users.show', { id: 5, tab: 'a' }) // → '/users/5?tab=a'  (route() is an alias of url())
+```
+
+Unused params are appended as a query string; missing required params throw.
+`allRoutes()` now includes each route's `name`.
+
+#### Resource routes — `resource()` / `apiResource()`
+```js
+Routes.resource('photos', PhotoController)
+// GET    /photos             → index    (photos.index)
+// GET    /photos/create      → create   (photos.create)
+// POST   /photos             → store    (photos.store)
+// GET    /photos/:id         → show     (photos.show)
+// GET    /photos/:id/edit    → edit     (photos.edit)
+// PUT|PATCH /photos/:id      → update   (photos.update)
+// DELETE /photos/:id         → destroy  (photos.destroy)
+
+Routes.apiResource('posts', PostController)            // omits create & edit
+Routes.resource('books', BookController, { only: ['index', 'show'], parameter: 'book' })
+```
+Only actions the controller actually implements are registered.
+
+#### Named middleware aliases & groups
+```js
+Routes.registerMiddleware('auth', AuthMiddleware)
+Routes.registerMiddleware({ guest: GuestMiddleware, admin: AdminMiddleware })
+Routes.middlewareGroup('web', ['auth', LogMiddleware])
+
+Routes.middleware(['auth']).get('/me', handler)        // use by string
+Routes.middleware(['web'], () => { Routes.get('/dash', handler) })
+```
+
+#### Parameter constraints — `where()`
+```js
+Routes.get('/item/:id', handler).whereNumber('id')     // only digits
+Routes.get('/item/:slug', handler)                     // non-numeric falls through to here
+Routes.get('/code/:c', handler).where('c', '[A-Z]{3}')
+// also: whereAlpha, whereAlphaNumeric, whereUuid
+```
+A non-matching parameter is skipped with `next('route')`, so a later route can still match.
+
+#### Redirect, view & fallback routes
+```js
+Routes.redirect('/old', '/new')        // 302
+Routes.redirect('/old', '/new', 301)   // permanent
+Routes.view('/about', 'about', { title: 'About' })  // res.render via the view engine
+Routes.fallback(({ res }) => res.status(404).json({ error: 'Not Found' }))
+```
+
+### 🔧 Improvements
+
+- `RouteHandler` return type widened to allow the natural `({ res }) => res.json(...)` form
+  (returning a response/value no longer fails strict TypeScript).
+- `Middleware` type now also accepts a `string` (registered alias/group name).
+- All version strings synchronized to `3.2.0`; types updated across `.d.ts` / `.d.mts` / `.d.cts`.
+
+---
+
 ## [3.1.0] - 2026-06-10
 
 ### 🐛 Fixes

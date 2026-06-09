@@ -30,7 +30,7 @@ const LogMiddleware = {
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 Routes.get('/', ({ res }) => {
-    res.json({ message: 'ESM Example Server', version: '3.1.0', module: 'ESM' });
+    res.json({ message: 'ESM Example Server', version: '3.2.0', module: 'ESM' });
 });
 
 // Middleware class via handle() — new style
