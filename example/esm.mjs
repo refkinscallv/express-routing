@@ -1,5 +1,5 @@
 import express from 'express';
-import Routes from '../src/routes.mjs';
+import Routes from '@refkinscallv/express-routing';
 
 const app = express();
 const router = express.Router();

@@ -1,5 +1,5 @@
 const express = require('express');
-const Routes = require('../src/routes');
+const Routes = require('@refkinscallv/express-routing');
 
 require('./web');
 

@@ -1,5 +1,5 @@
 import express, { Router, Request, Response, NextFunction, Application } from 'express';
-import Routes, { HttpContext, RouteInfo, MiddlewareClass } from '../types/index';
+import Routes, { HttpContext, RouteInfo, MiddlewareClass } from '@refkinscallv/express-routing';
 
 const app: Application = express();
 const router: Router = Router();

@@ -87,14 +87,33 @@ Routes.get('/hello', ({ req, res, next, error }) => {
 })
 
 // 2. Static class method reference
+class UserController {
+    static index({ res }) { res.json({ users: [] }) }
+}
 Routes.get('/users', [UserController, 'index'])
 
-// 3. Instance class method reference
-Routes.get('/users', [UserController, 'index'])  // auto-instantiated
+// 3. Instance class method reference — auto-instantiated (`new UserController()`)
+class ProfileController {
+    show({ res }) { res.json({ profile: {} }) }
+}
+Routes.get('/profile', [ProfileController, 'show'])
 
 // 4. Plain object method reference
-Routes.get('/users', [userObject, 'list'])
+const userObject = { list({ res }) { res.json([]) } }
+Routes.get('/list', [userObject, 'list'])
 ```
+
+### Multiple Methods — `Routes.add()`
+
+```js
+// Register the same handler for several HTTP methods at once
+Routes.add(['get', 'post'], '/search', ({ req, res }) => {
+    res.json({ method: req.method })
+})
+```
+
+> **Order matters:** register all routes (and `errorHandler` / `maintenance`) **before** calling
+> `Routes.apply()`. `apply()` is a one-time flush of everything registered so far.
 
 ---
 
@@ -141,6 +160,10 @@ Routes.middleware([AuthMiddleware]).get('/profile', handler)
 Routes.middleware([AuthMiddleware]).post('/settings', handler)
 ```
 
+> **Scope:** the chained middleware applies **only** to the single terminal call
+> (`.get`, `.post`, `.group`, …) — it never leaks into later routes. A chain with no
+> terminal call (e.g. a stray `Routes.middleware([Mw])`) is a no-op and registers nothing.
+
 ### Middleware Class Example
 
 ```js
@@ -182,6 +205,10 @@ Routes.group('/api', () => {
 })
 ```
 
+Groups nest freely, and the active prefix / group middleware are always restored after the
+callback returns — **even if the callback throws** — so a definition-time error can never
+corrupt routes registered later.
+
 ---
 
 ## Routes.controller(basePath, Controller, methodMiddlewares?)
@@ -203,22 +230,47 @@ Auto-register all methods of a controller as routes.
 
 ### Controller Formats
 
-```js
-// Static class
-class UserController {
-    static index({ req, res }) { res.json({ users: [] }) }
-    static myProfile({ req, res }) { res.json({ profile: {} }) }
-    static post_create({ req, res }) { res.status(201).json({ created: true }) }
-}
+A controller can be a **static class**, an **instance class**, or a **plain object**.
 
-// Per-method middleware mapping
+```js
+// 1. Static class
+class UserController {
+    static index({ req, res }) { res.json({ users: [] }) }          // GET  /users
+    static myProfile({ req, res }) { res.json({ profile: {} }) }    // GET  /users/my-profile
+    static post_create({ req, res }) { res.status(201).json({ created: true }) } // POST /users/create
+}
+Routes.controller('users', UserController)
+
+// 2. Instance class — auto-instantiated ONCE; `this` is shared across all its routes
+class CartController {
+    constructor() { this.items = [] }
+    index({ res }) { res.json(this.items) }                         // GET  /cart
+    post_add({ req, res }) { this.items.push(req.body); res.json(this.items) } // POST /cart/add
+}
+Routes.controller('cart', CartController)
+
+// 3. Plain object
+const ProductController = {
+    index({ res }) { res.json({ products: [] }) },                  // GET  /products
+    featuredItems({ res }) { res.json({ featured: [] }) },          // GET  /products/featured-items
+}
+Routes.controller('products', ProductController)
+```
+
+### Per-method Middleware
+
+```js
 const middlewares = {
     'myProfile': AuthMiddleware,
-    'post_create': [AuthMiddleware, AdminMiddleware]
+    'post_create': [AuthMiddleware, AdminMiddleware],
 }
 
 Routes.controller('users', UserController, middlewares)
 ```
+
+> **Single instance:** an instance-class controller is constructed exactly once, and every
+> resolved method is bound to that same instance — so shared `this` state works as expected and
+> the constructor never runs more than once.
 
 ---
 
@@ -264,11 +316,25 @@ Routes.maintenance(false)
 
 ## Routes.allRoutes()
 
-Returns an array of route information objects.
+Returns an array of `RouteInfo` objects describing every registered route — useful for
+debugging or printing a route table on boot.
 
 ```js
 const routes = Routes.allRoutes()
 // [{ methods, path, middlewareCount, handlerType }, ...]
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `methods` | `HttpMethod[]` | HTTP methods for the route |
+| `path` | `string` | Normalized full path |
+| `middlewareCount` | `number` | Number of middlewares attached |
+| `handlerType` | `'function' \| 'controller'` | `'function'` for inline handlers; `'controller'` for `Routes.controller()` routes and `[Controller, 'method']` tuples |
+
+```js
+Routes.allRoutes().forEach(r => {
+    console.log(`${r.methods.join(',').toUpperCase()} ${r.path}`)
+})
 ```
 
 ---
@@ -293,3 +359,108 @@ Routes.nameToPath('SamplePath')  // → 'sample-path'
 Routes.nameToPath('sample_path') // → 'sample-path'
 Routes.nameToPath('Samplepath')  // → 'samplepath'
 ```
+
+---
+
+## Complete Examples
+
+End-to-end applications wiring together groups, middleware, controllers, an error handler,
+and `apply()`. The only difference between the three is the **import line** and how the
+top-level `await` is expressed.
+
+### CommonJS
+
+```js
+const express = require('express')
+const Routes = require('@refkinscallv/express-routing')
+
+const app = express()
+const router = express.Router()
+app.use(express.json())
+
+class AuthMiddleware {
+    static handle({ req, res, next }) {
+        if (!req.headers.authorization) {
+            return res.status(401).json({ error: 'Unauthorized' })
+        }
+        next()
+    }
+}
+
+class UserController {
+    static index({ res }) { res.json({ users: ['Alice', 'Bob'] }) }     // GET  /users
+    static post_create({ req, res }) { res.status(201).json(req.body) } // POST /users/create
+}
+
+Routes.get('/', ({ res }) => res.json({ message: 'Hello World' }))
+
+Routes.middleware([AuthMiddleware]).get('/me', ({ res }) => res.json({ me: true }))
+
+Routes.group('/api', () => {
+    Routes.controller('users', UserController)
+})
+
+Routes.errorHandler(({ res, error }) => {
+    res.status(error?.status || 500).json({ error: error?.message })
+})
+
+Routes.apply(app, router).then(() => {
+    app.listen(3000, () => console.log('http://localhost:3000'))
+})
+```
+
+### ESM
+
+```js
+import express from 'express'
+import Routes from '@refkinscallv/express-routing'
+
+const app = express()
+const router = express.Router()
+app.use(express.json())
+
+class AuthMiddleware {
+    static handle({ req, res, next }) {
+        if (!req.headers.authorization) {
+            return res.status(401).json({ error: 'Unauthorized' })
+        }
+        next()
+    }
+}
+
+Routes.get('/', ({ res }) => res.json({ message: 'Hello World' }))
+Routes.middleware([AuthMiddleware]).get('/me', ({ res }) => res.json({ me: true }))
+
+await Routes.apply(app, router)
+app.listen(3000, () => console.log('http://localhost:3000'))
+```
+
+### TypeScript
+
+```ts
+import express, { Application, Router } from 'express'
+import Routes, { HttpContext, MiddlewareClass } from '@refkinscallv/express-routing'
+
+const app: Application = express()
+const router: Router = Router()
+app.use(express.json())
+
+class AuthMiddleware implements MiddlewareClass {
+    handle({ req, res, next }: HttpContext): void {
+        if (!req.headers.authorization) {
+            res.status(401).json({ error: 'Unauthorized' })
+            return
+        }
+        next()
+    }
+}
+
+Routes.get('/', ({ res }: HttpContext) => res.json({ message: 'Hello World' }))
+Routes.middleware([AuthMiddleware]).get('/me', ({ res }: HttpContext) => res.json({ me: true }))
+
+await Routes.apply(app, router)
+app.listen(3000, () => console.log('http://localhost:3000'))
+```
+
+> Runnable versions of these live in the [`example/`](example/) directory:
+> `npm run example` (CommonJS), `npm run example:esm` (ESM), `npm run example:ts` (TypeScript).

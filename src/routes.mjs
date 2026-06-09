@@ -44,26 +44,47 @@ export default class Routes {
     }
 
     /**
-     * Normalize middleware — accepts plain function OR object/class with handle()
+     * Resolve a middleware's handle({ req, res, next, error }) method into a bound
+     * callable, or null if the middleware is a plain Express function.
+     *   - Class with STATIC handle()    → bound to the class
+     *   - Class with INSTANCE handle()  → instantiated once, bound to the instance
+     *   - Plain object with handle()     → bound to the object
+     */
+    static resolveHandle(mw) {
+        if (typeof mw === 'function') {
+            if (typeof mw.handle === 'function') {
+                return mw.handle.bind(mw)                       // static handle()
+            }
+            if (mw.prototype && typeof mw.prototype.handle === 'function') {
+                const instance = new mw()                       // instance handle()
+                return instance.handle.bind(instance)
+            }
+            return null                                         // plain Express function
+        }
+        if (typeof mw === 'object' && mw !== null && typeof mw.handle === 'function') {
+            return mw.handle.bind(mw)                            // plain object handle()
+        }
+        return null
+    }
+
+    /** Wrap a resolved handle() function into an Express-compatible middleware. */
+    static wrapHandle(handleFn) {
+        return (req, res, next) => {
+            try {
+                const result = handleFn({ req, res, next, error: null })
+                Promise.resolve(result).catch(next)
+            } catch (err) { next(err) }
+        }
+    }
+
+    /**
+     * Normalize middleware — accepts plain function OR class/object with handle()
+     * (static handle, instance handle, or plain object handle).
      */
     static normalizeMiddleware(mw) {
-        if (typeof mw === 'function' && typeof mw.handle === 'function') {
-            return (req, res, next) => {
-                try {
-                    const result = mw.handle({ req, res, next, error: null })
-                    Promise.resolve(result).catch(next)
-                } catch (err) { next(err) }
-            }
-        }
+        const handleFn = this.resolveHandle(mw)
+        if (handleFn) return this.wrapHandle(handleFn)
         if (typeof mw === 'function') return mw
-        if (typeof mw === 'object' && mw !== null && typeof mw.handle === 'function') {
-            return (req, res, next) => {
-                try {
-                    const result = mw.handle({ req, res, next, error: null })
-                    Promise.resolve(result).catch(next)
-                } catch (err) { next(err) }
-            }
-        }
         throw new Error(`Invalid middleware: must be a function or an object/class with a "handle({ req, res, next, error })" method`)
     }
 
@@ -72,18 +93,15 @@ export default class Routes {
      * Plain Express functions are NOT permitted in chaining syntax.
      */
     static normalizeMiddlewareStrict(mw) {
-        const hasHandle =
-            (typeof mw === 'function' && typeof mw.handle === 'function') ||
-            (typeof mw === 'object' && mw !== null && typeof mw.handle === 'function')
-
-        if (!hasHandle) {
+        const handleFn = this.resolveHandle(mw)
+        if (!handleFn) {
             throw new Error(
                 `Chained middleware must implement a "handle({ req, res, next, error })" method. ` +
                 `Plain functions are not allowed in chaining syntax. Use the scoped callback form instead: ` +
                 `Routes.middleware([fn], () => { ... })`
             )
         }
-        return this.normalizeMiddleware(mw)
+        return this.wrapHandle(handleFn)
     }
 
     static add(methods, path, handler, middlewares = []) {

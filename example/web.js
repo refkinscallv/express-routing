@@ -1,4 +1,4 @@
-const Routes = require('../src/routes');
+const Routes = require('@refkinscallv/express-routing');
 
 // ─── Controllers ──────────────────────────────────────────────────────────────
 

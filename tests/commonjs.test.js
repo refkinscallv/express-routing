@@ -525,6 +525,36 @@ describe('Express Routing - CommonJS', () => {
             expect(res.body.hits).toBe(2); // shared `this.hits` across routes
         });
 
+        test('class middleware with an INSTANCE handle() is supported (scoped)', async () => {
+            const calls = [];
+            class LogMiddleware {
+                handle({ next }) { calls.push('log'); next(); }   // instance method, not static
+            }
+            Routes.middleware([LogMiddleware], () => {
+                Routes.get('/logged', ({ res }) => res.json({ ok: true }));
+            });
+            await setupApp();
+            const res = await request(app).get('/logged');
+            expect(res.status).toBe(200);   // must NOT 500 "cannot be invoked without 'new'"
+            expect(calls).toEqual(['log']);
+        });
+
+        test('class middleware with an INSTANCE handle() is supported (chaining)', async () => {
+            const calls = [];
+            class AuthMiddleware {
+                handle({ res, next }) {
+                    calls.push('auth');
+                    if (calls.length > 99) return res.status(401).end();
+                    next();
+                }
+            }
+            Routes.middleware([AuthMiddleware]).get('/secured', ({ res }) => res.json({ ok: true }));
+            await setupApp();
+            const res = await request(app).get('/secured');
+            expect(res.status).toBe(200);
+            expect(calls).toEqual(['auth']);
+        });
+
         test('allRoutes() reports controller routes as "controller"', () => {
             class C { static index({ res }) { res.end(); } }
             Routes.controller('c', C);

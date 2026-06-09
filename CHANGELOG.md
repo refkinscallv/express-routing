@@ -52,6 +52,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **`allRoutes()` mislabeled controller routes.**
   Controller-resolved routes now report `handlerType: 'controller'` (previously `'function'`).
 
+- **Class middleware with an *instance* `handle()` crashed at runtime.**
+  Passing a class whose `handle()` lives on the prototype (e.g. `class Mw { handle(ctx) {} }`) —
+  a form the types and docs explicitly allow — fell through to the "plain Express function" path,
+  so Express invoked the class without `new` and threw
+  *"Class constructor … cannot be invoked without 'new'"*. Middleware resolution now handles
+  **static `handle()`, instance `handle()` (instantiated once), and plain-object `handle()`**
+  uniformly, in both scoped and chaining modes.
+
+- **`example/typescript.ts` crashed on startup (`npm run example:ts`).**
+  It imported the runtime `Routes` value from `../types/index`, a types-only `.d.ts` with no
+  JavaScript. All examples now import from the package itself
+  (`@refkinscallv/express-routing`), matching real-world usage, and all three
+  (`example`, `example:esm`, `example:ts`) boot and serve requests correctly under Express 5.
+
 ### 🔧 Improvements
 
 - Added dedicated, condition-specific type declarations:
